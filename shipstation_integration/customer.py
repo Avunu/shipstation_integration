@@ -20,7 +20,7 @@ def update_customer_details(
 	try:
 		existing_so_doc: "SalesOrder" = frappe.get_doc("Sales Order", existing_so)
 
-		email_id, _ = parse_addr(existing_so_doc.amazon_customer)
+		email_id, _ = parse_addr(existing_so_doc.customer)
 		if email_id:
 			contact = create_contact(order, email_id)
 			existing_so_doc.contact_person = contact.name
@@ -51,7 +51,7 @@ def update_customer_details(
 				else:
 					bill_address = create_address(
 						order.bill_to,
-						existing_so_doc.amazon_customer,
+						existing_so_doc.customer,
 						order.customer_email,
 						"Billing",
 					)
@@ -70,7 +70,7 @@ def update_customer_details(
 				else:
 					ship_address = create_address(
 						order.ship_to,
-						existing_so_doc.amazon_customer,
+						existing_so_doc.customer,
 						order.customer_email,
 						"Shipping",
 					)
