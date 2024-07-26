@@ -122,7 +122,7 @@ def validate_order(
 
 
 def create_erpnext_order(order: "ShipStationOrder", store: "ShipstationStore") -> str | None:
-	customer = create_customer(order)
+	customer, shipping_address, billing_address = create_customer(order)
 	so: "SalesOrder" = frappe.new_doc("Sales Order")
 	so.update(
 		{
@@ -136,8 +136,10 @@ def create_erpnext_order(order: "ShipStationOrder", store: "ShipstationStore") -
 			"company": store.company,
 			"transaction_date": getdate(order.order_date),
 			"delivery_date": getdate(order.ship_date),
-			"shipping_address_name": customer.customer_primary_address,
-			"customer_primary_address": get_billing_address(customer.name),
+			"customer_address": billing_address.name if billing_address else None,
+			"address_display": billing_address.get_display() if billing_address else None,
+			"shipping_address_name": shipping_address.name if shipping_address else None,
+			"shipping_address": shipping_address.get_display() if shipping_address else None,
 			"integration_doctype": "Shipstation Settings",
 			"integration_doc": store.parent,
 			"has_pii": True,

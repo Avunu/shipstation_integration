@@ -17,64 +17,74 @@ if TYPE_CHECKING:
 def update_customer_details(
 	existing_so: str, order: "ShipStationOrder", store: "ShipstationStore"
 ):
-	existing_so_doc: "SalesOrder" = frappe.get_doc("Sales Order", existing_so)
+	try:
+		existing_so_doc: "SalesOrder" = frappe.get_doc("Sales Order", existing_so)
 
-	email_id, _ = parse_addr(existing_so_doc.amazon_customer)
-	if email_id:
-		contact = create_contact(order, email_id)
-		existing_so_doc.contact_person = contact.name
+		email_id, _ = parse_addr(existing_so_doc.amazon_customer)
+		if email_id:
+			contact = create_contact(order, email_id)
+			existing_so_doc.contact_person = contact.name
 
-	existing_so_doc.update(
-		{
-			"shipstation_order_id": order.order_id,
-			"shipstation_store_name": store.store_name,
-			"shipstation_customer_notes": getattr(order, "customer_notes", None),
-			"shipstation_internal_notes": getattr(order, "internal_notes", None),
-			"marketplace_order_id": order.order_number,
-			"delivery_date": getdate(order.ship_date),
-			"has_pii": True,
-			"integration_doctype": "Shipstation Settings",
-			"integration_doc": store.parent,
-		}
-	)
+		existing_so_doc.update(
+			{
+				"shipstation_order_id": order.order_id,
+				"shipstation_store_name": store.store_name,
+				"shipstation_customer_notes": getattr(order, "customer_notes", None),
+				"shipstation_internal_notes": getattr(order, "internal_notes", None),
+				"marketplace_order_id": order.order_number,
+				"delivery_date": getdate(order.ship_date),
+				"has_pii": True,
+				"integration_doctype": "Shipstation Settings",
+				"integration_doc": store.parent,
+			}
+		)
 
-	if order.bill_to and order.bill_to.street1:
-		if existing_so_doc.customer_address:
-			bill_address = update_address(
-				order.bill_to,
-				existing_so_doc.customer_address,
-				order.customer_email,
-				"Billing",
-			)
-		else:
-			bill_address = create_address(
-				order.bill_to,
-				existing_so_doc.amazon_customer,
-				order.customer_email,
-				"Billing",
-			)
-			existing_so_doc.customer_address = bill_address.name
-	if order.ship_to and order.ship_to.street1:
-		if existing_so_doc.shipping_address_name:
-			ship_address = update_address(
-				order.ship_to,
-				existing_so_doc.shipping_address_name,
-				order.customer_email,
-				"Shipping",
-			)
-		else:
-			ship_address = create_address(
-				order.ship_to,
-				existing_so_doc.amazon_customer,
-				order.customer_email,
-				"Shipping",
-			)
-			existing_so_doc.shipping_address_name = ship_address.name
+		if order.bill_to and order.bill_to.street1:
+			try:
+				if existing_so_doc.customer_address:
+					bill_address = update_address(
+						order.bill_to,
+						existing_so_doc.customer_address,
+						order.customer_email,
+						"Billing",
+					)
+				else:
+					bill_address = create_address(
+						order.bill_to,
+						existing_so_doc.amazon_customer,
+						order.customer_email,
+						"Billing",
+					)
+					existing_so_doc.customer_address = bill_address.name
+			except Exception as e:
+				frappe.log_error(f"Error updating billing address for order {existing_so}", e)
+		if order.ship_to and order.ship_to.street1:
+			try:
+				if existing_so_doc.shipping_address_name:
+					ship_address = update_address(
+						order.ship_to,
+						existing_so_doc.shipping_address_name,
+						order.customer_email,
+						"Shipping",
+					)
+				else:
+					ship_address = create_address(
+						order.ship_to,
+						existing_so_doc.amazon_customer,
+						order.customer_email,
+						"Shipping",
+					)
+					existing_so_doc.shipping_address_name = ship_address.name
+			except Exception as e:
+				frappe.log_error(f"Error updating shipping address for order {existing_so}", e)
 
-	existing_so_doc.flags.ignore_validate_update_after_submit = True
-	existing_so_doc.run_method("set_customer_address")
-	existing_so_doc.save()
-	return existing_so_doc
+		existing_so_doc.flags.ignore_validate_update_after_submit = True
+		existing_so_doc.run_method("set_customer_address")
+		existing_so_doc.save()
+		return existing_so_doc
+	except Exception as e:
+		frappe.log_error(f"Error in update_customer_details for order {existing_so}", e)
+		raise
 
 
 def create_address(address: "ShipStationAddress", customer: str, email: str, address_type: str):
@@ -136,13 +146,13 @@ def create_customer(order: "ShipStationOrder"):
 			cust.customer_primary_contact = customer_primary_contact.name
 
 	if order.ship_to.street1:
-		create_address(order.ship_to, customer_name, order.customer_email, "Shipping")
+		shipping_address = create_address(order.ship_to, customer_name, order.customer_email, "Shipping")
 	if order.bill_to.street1:
-		create_address(order.bill_to, order.customer_username, order.customer_email, "Billing")
+		billing_address = create_address(order.bill_to, order.customer_username, order.customer_email, "Billing")
 
 	try:
 		cust.save()
-		return cust
+		return cust, shipping_address, billing_address
 	except Exception as e:
 		frappe.log_error(title="Error saving Shipstation Customer", message=e)
 
