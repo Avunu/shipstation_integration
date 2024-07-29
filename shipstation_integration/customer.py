@@ -2,6 +2,8 @@ from typing import TYPE_CHECKING
 
 import frappe
 from frappe.utils import getdate, parse_addr
+from frappe.query_builder import DocType
+# from frappe.query_builder.functions import Coalesce
 
 if TYPE_CHECKING:
     from erpnext.selling.doctype.sales_order.sales_order import SalesOrder
@@ -121,17 +123,26 @@ def _update_address(address: "ShipStationAddress", addr: "Address", email: str, 
 
 
 def create_or_update_address(address_data, customer_name, email, address_type):
-    existing_address = frappe.get_value(
-        "Address",
-        {
-            "address_type": address_type,
-            "address_line1": address_data.street1,
-            "links": {"link_doctype": "Customer", "link_name": customer_name},
-        },
+    DynamicLink = DocType("Dynamic Link")
+    Address = DocType("Address")
+
+    existing_address = (
+        frappe.qb.from_(DynamicLink)
+        .select(DynamicLink.parent)
+        .join(Address)
+        .on(Address.name == DynamicLink.parent)
+        .where(
+            (DynamicLink.link_doctype == "Customer")
+            & (DynamicLink.link_name == customer_name)
+            & (Address.address_type == address_type)
+            & (Address.address_line1 == address_data.street1)
+        )
+        .limit(1)
+        .run(as_dict=True)
     )
 
     if existing_address:
-        addr = frappe.get_doc("Address", existing_address)
+        addr = frappe.get_doc("Address", existing_address[0].parent)
     else:
         addr = frappe.new_doc("Address")
         addr.append("links", {"link_doctype": "Customer", "link_name": customer_name})
