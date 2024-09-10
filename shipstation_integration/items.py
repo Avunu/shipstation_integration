@@ -97,4 +97,4 @@ def create_item(
 		item = frappe.get_attr(before_save_hook[0])(store, item)
 
 	item.save()
-	return item.item_code
+	return item

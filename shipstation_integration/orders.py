@@ -2,6 +2,7 @@ import datetime
 from typing import TYPE_CHECKING, Union
 
 import frappe
+from erpnext.stock.doctype.item.item import get_uom_conv_factor
 from frappe.utils import flt, getdate
 from httpx import HTTPError
 
@@ -44,7 +45,7 @@ def list_orders(
 		if not last_order_datetime:
 			# get data for the last day, Shipstation API behaves oddly when it's a shorter period
 			last_order_datetime = datetime.datetime.utcnow() - datetime.timedelta(
-				hours=sss_doc.get("hours_to_fetch", 24)
+				hours=sss_doc.get("hours_to_fetch", 500)
 			)
 
 		store: "ShipstationStore"
@@ -88,8 +89,25 @@ def validate_order(
 	if not order:
 		return False
 
-	# if an order already exists, skip
-	if frappe.db.get_value("Sales Order", {"shipstation_order_id": order.order_id, "docstatus": 1}):
+	# if an order already exists, skip, unless the status needs to be updated
+	existing_order = frappe.db.get_value(
+		"Sales Order",
+		{"shipstation_order_id": order.order_id},
+		["name", "status"],
+		as_dict=True
+	)
+	if existing_order:
+		new_status, new_docstatus = get_erpnext_status(order.order_status)
+		if existing_order.status != new_status:
+			frappe.db.set_value(
+				"Sales Order",
+				existing_order.name,
+				{
+					"status": new_status,
+					"docstatus": new_docstatus
+				},
+				update_modified=False
+			)
 		return False
 
 	# only create orders for warehouses defined in Shipstation Settings;
@@ -123,9 +141,11 @@ def validate_order(
 
 def create_erpnext_order(order: "ShipStationOrder", store: "ShipstationStore") -> str | None:
 	customer, shipping_address, billing_address = create_customer(order)
+	status, docstatus = get_erpnext_status(order.order_status)
 	so: "SalesOrder" = frappe.new_doc("Sales Order")
 	so.update(
 		{
+			"status": status,
 			"shipstation_store_name": store.store_name,
 			"shipstation_order_id": order.order_id,
 			"shipstation_customer_notes": getattr(order, "customer_notes", None),
@@ -178,13 +198,17 @@ def create_erpnext_order(order: "ShipStationOrder", store: "ShipstationStore") -
 			continue
 
 		settings = frappe.get_doc("Shipstation Settings", store.parent)
-		item_code = create_item(item, settings=settings, store=store)
+		stock_item = create_item(item, settings=settings, store=store)
+		uom = stock_item.sales_uom or stock_item.stock_uom
+		conversion_factor = (
+			1 if uom == stock_item.stock_uom else get_uom_conv_factor(uom, stock_item.stock_uom)
+		)
 		item_notes = get_item_notes(item)
 		item_dict = {
-			"item_code": item_code,
+			"item_code": stock_item.item_code,
 			"qty": item.quantity,
-			"uom": frappe.db.get_single_value("Stock Settings", "stock_uom"),
-			"conversion_factor": 1,
+			"uom": uom,
+			"conversion_factor": conversion_factor,
 			"rate": rate,
 			"warehouse": store.warehouse,
 			"shipstation_order_item_id": item.order_item_id,
@@ -257,7 +281,12 @@ def create_erpnext_order(order: "ShipStationOrder", store: "ShipstationStore") -
 		so = frappe.get_attr(before_submit_hook[0])(store, so)
 		so.save()
 
-	so.submit()
+	match docstatus:
+		case 1:
+			so.submit()
+		case 2:
+			so.cancel()
+	
 	frappe.db.commit()
 	return so.name
 
@@ -271,3 +300,16 @@ def get_item_notes(item: "ShipStationOrderItem"):
 				notes = option.value
 				break
 	return notes
+
+
+def get_erpnext_status(shipstation_status):
+    status_mapping = {
+        "awaiting_payment": ("Draft", 0),
+        "awaiting_shipment": ("To Deliver", 1),
+        "shipped": ("Completed", 1),
+        "on_hold": ("On Hold", 1),
+        "cancelled": ("Cancelled", 2),
+        "pending_fulfillment": ("To Deliver and Bill", 1)
+    }
+    
+    return status_mapping.get(shipstation_status, ("Draft", 0))
