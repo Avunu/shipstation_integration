@@ -338,3 +338,26 @@ def get_item_notes(item: "ShipStationOrderItem"):
 				notes = option.value
 				break
 	return notes
+
+def update_shipstation_order_status(
+	order_id: str,
+	status: str,
+	settings: "ShipstationSettings",
+	store: "ShipstationStore",
+) -> Union[bool, str]:
+    # https://www.shipstation.com/docs/api/orders/create-update-order/
+    
+	client = settings.client()
+ 
+	ss_status = {v: k for k, v in STATUS_MAPPING.items()}.get(status)
+ 
+	url = "https://ssapi.shipstation.com/orders/createorder"
+ 
+	data = {
+		"orderId": order_id,
+		"orderNumber": order_id,
+		"orderStatus": ss_status,
+		"storeId": store.store_id,
+	}
+ 
+	client.post(endpoint=url, data=data)
