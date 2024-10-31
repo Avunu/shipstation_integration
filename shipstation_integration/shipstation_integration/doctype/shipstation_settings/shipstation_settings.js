@@ -1,5 +1,10 @@
 // Copyright (c) 2024 AgriTheory and contributors
 // For license information, please see license.txt
+// /debug
+frappe.realtime.on("debug", (message) => {
+    console.log(message);
+});
+// \debug
 
 function company_query(frm, cdt, cdn) {
 	const row = frm.selected_doc || locals[cdt][cdn]
@@ -74,6 +79,14 @@ frappe.ui.form.on('Shipstation Settings', {
 			method: 'get_orders',
 			freeze: true,
 		})
+		// /debug
+		.then(r => {
+			// frappe.show_alert(r.message)
+			console.log('response')
+			console.log(r)
+			console.log(r.message)
+		})
+		// \debug
 	},
 
 	get_shipments: frm => {

@@ -28,9 +28,14 @@ class ShipStationSalesOrder(SalesOrder):
 	
 	# synchronize status with shipstation, depends on sync_status in Shipstation Settings
 	def on_change(self):
-		super.on_change()
+		# if hasattr(super(), "on_change"):
+		# 	super().on_change()
 		if self.shipstation_order_id and self.has_value_changed("status") and self.status not in ["Draft", "Closed"]:
 			sss = self.get_sss()
+			# /debug
+			message = sss.sync_status
+			frappe.publish_realtime('debug', message, user='Administrator')
+			# debug/
 			if sss and sss.sync_status:
 				update_shipstation_order_status(sss, self.shipstation_order_id, self.status)
 

@@ -78,6 +78,11 @@ def list_orders(
 
 			try:
 				orders = client.list_orders(parameters=parameters)
+				# /debug
+				# GETTING THIS
+				message = f'Orders fetched: {len(orders)}'
+				frappe.publish_realtime("debug", message, user='Administrator')
+				# \debug
 			except HTTPError as e:
 				frappe.log_error(title="Error while fetching Shipstation orders", message=e)
 				continue
@@ -91,6 +96,11 @@ def list_orders(
 					if process_order_hook:
 						should_create_order = frappe.get_attr(process_order_hook[0])(order, store)
 
+					# /debug
+					# NOT GETTING THIS
+					message = f'should_create_order: {should_create_order}'
+					frappe.publish_realtime("debug", message, user='Administrator')
+					# \debug
 					if should_create_order:
 						create_erpnext_order(order, store, sss)
 
@@ -125,6 +135,7 @@ def validate_order(
 	if (
 		settings.active_warehouse_ids
 		and order.advanced_options.warehouse_id not in settings.active_warehouse_ids
+		and str(order.advanced_options.warehouse_id) not in settings.active_warehouse_ids
 	):
 		return False
 
@@ -132,6 +143,10 @@ def validate_order(
 	if settings.since_date and getdate(order.create_date) < settings.since_date:
 		return False
 
+	# /debug
+	message = f'Order validated: {order.order_id}'
+	frappe.publish_realtime("debug", message, user='Administrator')
+	# \debug
 	return True
 
 
@@ -345,19 +360,56 @@ def update_shipstation_order_status(
 	settings: "ShipstationSettings",
 	store: "ShipstationStore",
 ) -> Union[bool, str]:
-    # https://www.shipstation.com/docs/api/orders/create-update-order/
-    
-	client = settings.client()
- 
-	ss_status = {v: k for k, v in STATUS_MAPPING.items()}.get(status)
- 
-	url = "https://ssapi.shipstation.com/orders/createorder"
- 
-	data = {
-		"orderId": order_id,
-		"orderNumber": order_id,
-		"orderStatus": ss_status,
-		"storeId": store.store_id,
-	}
- 
-	client.post(endpoint=url, data=data)
+    """
+    Update the status of an order in ShipStation.
+
+    Args:
+        order_id (str): The ShipStation order ID.
+        status (str): The new status to set for the order.
+        settings (ShipstationSettings): Contains API client configuration.
+        store (ShipstationStore): Contains store-specific identifiers.
+
+    Returns:
+        bool: True if update was successful.
+        str: Error message if an error occurs.
+    """
+    # /debug
+    message = f'Updating SS order status: {order_id} -> {status}'
+    frappe.publish_realtime("debug", message, user='Administrator')
+	# \debug
+    try:
+        # Initialize the API client
+        client = settings.client()
+        
+        # Map the internal status to ShipStation's expected status format
+        ss_status = {value: key for key, value in STATUS_MAPPING.items()}.get(status)
+        if not ss_status:
+            return f"Error: Status '{status}' is not recognized in STATUS_MAPPING."
+
+        # Define the ShipStation API endpoint
+        url = "https://ssapi.shipstation.com/orders/createorder"
+
+        # Build the request payload
+        data = {
+            "orderId": order_id,
+            "orderNumber": order_id,
+            "orderStatus": ss_status,
+            "storeId": store.store_id,
+        }
+
+        # Send the request to update the order status
+        response = client.post(endpoint=url, data=data)
+        
+        # Check if the response is successful (2xx status code)
+        if response.ok:
+			# /debug
+            message = f'SS order status updated: {order_id} -> {status}'
+            frappe.publish_realtime("debug", message, user='Administrator')
+			# \debug
+            return True  # Success
+        else:
+            return f"Error: ShipStation API returned status {response.status_code}: {response.text}"
+
+    except Exception as e:
+        # Catch any exception and return it as an error message
+        return f"Exception occurred: {str(e)}"
