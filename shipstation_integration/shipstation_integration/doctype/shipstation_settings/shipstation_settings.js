@@ -79,14 +79,6 @@ frappe.ui.form.on('Shipstation Settings', {
 			method: 'get_orders',
 			freeze: true,
 		})
-		// /debug
-		.then(r => {
-			// frappe.show_alert(r.message)
-			console.log('response')
-			console.log(r)
-			console.log(r.message)
-		})
-		// \debug
 	},
 
 	get_shipments: frm => {

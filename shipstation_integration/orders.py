@@ -78,11 +78,6 @@ def list_orders(
 
 			try:
 				orders = client.list_orders(parameters=parameters)
-				# /debug
-				# GETTING THIS
-				message = f'Orders fetched: {len(orders)}'
-				frappe.publish_realtime("debug", message, user='Administrator')
-				# \debug
 			except HTTPError as e:
 				frappe.log_error(title="Error while fetching Shipstation orders", message=e)
 				continue
@@ -96,11 +91,6 @@ def list_orders(
 					if process_order_hook:
 						should_create_order = frappe.get_attr(process_order_hook[0])(order, store)
 
-					# /debug
-					# NOT GETTING THIS
-					message = f'should_create_order: {should_create_order}'
-					frappe.publish_realtime("debug", message, user='Administrator')
-					# \debug
 					if should_create_order:
 						create_erpnext_order(order, store, sss)
 
@@ -121,11 +111,19 @@ def validate_order(
 		as_dict=True,
 	)
 	if existing_so:
-		so_status = STATUS_MAPPING.get(order.order_status)
+		if settings.sync_status:
+			so_status = STATUS_MAPPING.get(order.order_status)
 		if existing_so.status == so_status:
 			return False
 		if so_status == "Cancelled":
-			frappe.get_doc("Sales Order", existing_so.name).cancel()
+			try:
+				frappe.get_doc("Sales Order", existing_so.name).cancel()
+			except Exception as e:
+				frappe.log_error(title=f"Error while cancelling Sales Order {existing_so.name}", message=f'{e}\n{frappe.get_traceback()}')
+				return False
+			# debug
+			# ^^^^^^^ keep this try-except block? or get rid of it now that we are not trying to cancel SOs before we submit them?
+			# frappe.get_doc("Sales Order", existing_so.name).cancel()
 		else:
 			frappe.db.set_value("Sales Order", existing_so.name, "status", so_status)
 		return False
@@ -135,6 +133,7 @@ def validate_order(
 	if (
 		settings.active_warehouse_ids
 		and order.advanced_options.warehouse_id not in settings.active_warehouse_ids
+		# debug - do we need to keep both of thses?
 		and str(order.advanced_options.warehouse_id) not in settings.active_warehouse_ids
 	):
 		return False
@@ -143,10 +142,6 @@ def validate_order(
 	if settings.since_date and getdate(order.create_date) < settings.since_date:
 		return False
 
-	# /debug
-	message = f'Order validated: {order.order_id}'
-	frappe.publish_realtime("debug", message, user='Administrator')
-	# \debug
 	return True
 
 
@@ -265,8 +260,14 @@ def create_erpnext_order(
 				"cost_center": store.cost_center,
 			},
 		)
-
-	so.save()
+	try:
+		so.save()
+	except Exception as e:
+		frappe.log_error(title=f"Error while saving Sales Order for Shipstation order {order.order_id}", message=f'{e}\n{frappe.get_traceback()}')
+		return
+	# debug
+	# ^^^^^^^ keep this try-except block? keep it, it caught something else, so it seems worthy
+	# so.save()
 	if store.customer:
 		so.customer_name = order.customer_email
 	# coupons
@@ -321,25 +322,27 @@ def create_erpnext_order(
 			)
 
 	so.save()
-	so.status = STATUS_MAPPING.get(order.order_status)
+	if settings.sync_status:
+		so.status = STATUS_MAPPING.get(order.order_status)
+
+	before_submit_hook = frappe.get_hooks("update_shipstation_order_before_submit")
+	if before_submit_hook:
+		so = frappe.get_attr(before_submit_hook[0])(store, so, order)
+		if so:
+			so.save()
+
+	if so:
+		so.submit()
+		frappe.db.commit()
+
+	after_submit_hook = frappe.get_hooks("update_shipstation_order_after_submit")
+	if after_submit_hook:
+		frappe.get_attr(after_submit_hook[0])(store, so, order)
+		frappe.db.commit()
 
 	if so.status == "Cancelled":
 		so.cancel()
-	else:
-		before_submit_hook = frappe.get_hooks("update_shipstation_order_before_submit")
-		if before_submit_hook:
-			so = frappe.get_attr(before_submit_hook[0])(store, so, order)
-			if so:
-				so.save()
-
-		if so:
-			so.submit()
-			frappe.db.commit()
-
-		after_submit_hook = frappe.get_hooks("update_shipstation_order_after_submit")
-		if after_submit_hook:
-			frappe.get_attr(after_submit_hook[0])(store, so, order)
-			frappe.db.commit()
+		frappe.db.commit()
 
 	return so.name if so else None
 
@@ -354,62 +357,73 @@ def get_item_notes(item: "ShipStationOrderItem"):
 				break
 	return notes
 
+# Update the status of an order in ShipStation, called on change of Sales Order status
 def update_shipstation_order_status(
-	order_id: str,
-	status: str,
-	settings: "ShipstationSettings",
-	store: "ShipstationStore",
+    order_id: str,
+    status: str,
+    settings: "ShipstationSettings",
+    store: "ShipstationStore",
 ) -> Union[bool, str]:
-    """
-    Update the status of an order in ShipStation.
-
-    Args:
-        order_id (str): The ShipStation order ID.
-        status (str): The new status to set for the order.
-        settings (ShipstationSettings): Contains API client configuration.
-        store (ShipstationStore): Contains store-specific identifiers.
-
-    Returns:
-        bool: True if update was successful.
-        str: Error message if an error occurs.
-    """
     # /debug
+	# NOT GETTING THIS
     message = f'Updating SS order status: {order_id} -> {status}'
     frappe.publish_realtime("debug", message, user='Administrator')
 	# \debug
+
+    # Initialize variables for logging
+	# Define the ShipStation API endpoint
+    endpoint = "/orders/createorder"
+    # url = "https://ssapi.shipstation.com/orders/createorder"
+    data = {
+        "orderId": order_id,
+        "orderNumber": order_id,
+        "orderStatus": {value: key for key, value in STATUS_MAPPING.items()}.get(status),
+        "storeId": store.store_id,
+    }
+    request_log = {
+        "request_id": order_id,
+        "integration_request_service": "ShipStation",
+        "is_remote_request": 1,
+        "url": f"https://ssapi.shipstation.com{endpoint}",
+        "data": frappe.as_json(data),
+        "status": "Queued",
+        "request_description": f"Update order status to '{status}' for order ID {order_id}",
+    }
+    log_entry = frappe.get_doc({"doctype": "Integration Request", **request_log}).insert()
+
     try:
-        # Initialize the API client
+		# /debug
+        message = f'Doin the sync from erp to ss. Data: {data}'
+        frappe.publish_realtime("debug", message, user='Administrator')
+		# \debug
         client = settings.client()
-        
-        # Map the internal status to ShipStation's expected status format
-        ss_status = {value: key for key, value in STATUS_MAPPING.items()}.get(status)
-        if not ss_status:
-            return f"Error: Status '{status}' is not recognized in STATUS_MAPPING."
+        response = client.post(endpoint=endpoint, data=data)
 
-        # Define the ShipStation API endpoint
-        url = "https://ssapi.shipstation.com/orders/createorder"
-
-        # Build the request payload
-        data = {
-            "orderId": order_id,
-            "orderNumber": order_id,
-            "orderStatus": ss_status,
-            "storeId": store.store_id,
-        }
-
-        # Send the request to update the order status
-        response = client.post(endpoint=url, data=data)
-        
-        # Check if the response is successful (2xx status code)
         if response.ok:
+            # Update log entry on success
+            log_entry.status = "Completed"
+            log_entry.output = response.text
+            log_entry.save(ignore_permissions=True)
+
 			# /debug
-            message = f'SS order status updated: {order_id} -> {status}'
-            frappe.publish_realtime("debug", message, user='Administrator')
+            frappe.publish_realtime("debug", f'SS order status updated: {order_id} -> {status}', user='Administrator')
 			# \debug
-            return True  # Success
+            return True
+
         else:
-            return f"Error: ShipStation API returned status {response.status_code}: {response.text}"
+            error_message = f"Error: ShipStation API returned status {response.status_code}: {response.text}"
+            log_entry.status = "Failed"
+            log_entry.error = error_message
+            log_entry.save(ignore_permissions=True)
+
+            return error_message
 
     except Exception as e:
-        # Catch any exception and return it as an error message
-        return f"Exception occurred: {str(e)}"
+        # Log any exceptions that occur during the request
+        error_message = f"Exception occurred: {str(e)}\n{frappe.get_traceback()}"
+        frappe.log_error(title="Error while updating ShipStation order status", message=error_message)
+        log_entry.status = "Failed"
+        log_entry.error = error_message
+        log_entry.save(ignore_permissions=True)
+
+        return error_message

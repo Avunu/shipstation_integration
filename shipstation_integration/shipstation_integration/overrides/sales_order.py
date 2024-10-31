@@ -33,10 +33,16 @@ class ShipStationSalesOrder(SalesOrder):
 		if self.shipstation_order_id and self.has_value_changed("status") and self.status not in ["Draft", "Closed"]:
 			sss = self.get_sss()
 			# /debug
-			message = sss.sync_status
+			# GETTING THIS
+			message = f"Shipstation Settings Sync Status: {sss.sync_status}"
 			frappe.publish_realtime('debug', message, user='Administrator')
 			# debug/
 			if sss and sss.sync_status:
+				# /debug
+				# GETTING THIS
+				message = f"Updating Shipstation Order Status: {self.shipstation_order_id} to {self.status}"
+				frappe.publish_realtime('debug', message, user='Administrator')	
+				# debug/
 				update_shipstation_order_status(sss, self.shipstation_order_id, self.status)
 
 
