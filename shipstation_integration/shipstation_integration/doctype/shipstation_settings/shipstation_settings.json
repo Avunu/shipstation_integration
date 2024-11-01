@@ -8,7 +8,7 @@
  "field_order": [
   "enabled",
   "enable_label_generation",
-  "sync_status",
+  "sync_so_status",
   "api_key",
   "api_secret",
   "default_item_group",
@@ -176,21 +176,21 @@
    "options": "User"
   },
   {
-   "default": "0",
-   "fieldname": "sync_status",
-   "fieldtype": "Check",
-   "label": "Synchronize SO Status"
-  },
-  {
    "depends_on": "eval:!doc.__islocal",
    "fieldname": "get_tags",
    "fieldtype": "Button",
    "label": "Get Tags"
+  },
+  {
+   "default": "0",
+   "fieldname": "sync_so_status",
+   "fieldtype": "Check",
+   "label": "Synchronize Order Status"
   }
  ],
  "hide_toolbar": 1,
  "links": [],
- "modified": "2024-10-30 09:48:02.823621",
+ "modified": "2024-11-01 12:18:03.155071",
  "modified_by": "Administrator",
  "module": "Shipstation Integration",
  "name": "Shipstation Settings",
