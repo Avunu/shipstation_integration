@@ -33,7 +33,7 @@ def list_tags(
 
 		client = sss_doc.client()
 		tags = client.list_tags()
-		if settings.shipstation_user:
+		if sss.shipstation_user:
 			frappe.set_user(sss.shipstation_user)
 		for tag in tags:
 			if frappe.db.exists("Tag", tag.name):
