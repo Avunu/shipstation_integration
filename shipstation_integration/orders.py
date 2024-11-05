@@ -4,9 +4,9 @@ from typing import TYPE_CHECKING
 
 import frappe
 from erpnext.stock.doctype.item.item import get_uom_conv_factor
+from frappe.integrations.utils import create_request_log
 from frappe.utils import flt, getdate
 from frappe.utils.safe_exec import is_job_queued
-from frappe.integrations.utils import create_request_log
 from httpx import HTTPError
 
 from shipstation_integration.customer import create_customer, get_billing_address
