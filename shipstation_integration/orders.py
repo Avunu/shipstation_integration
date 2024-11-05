@@ -1,9 +1,10 @@
 import datetime
 from decimal import Decimal
-from typing import TYPE_CHECKING, Union
+from typing import TYPE_CHECKING
 
 import frappe
 from erpnext.stock.doctype.item.item import get_uom_conv_factor
+from frappe.integrations.utils import create_request_log
 from frappe.utils import flt, getdate
 from frappe.utils.safe_exec import is_job_queued
 from httpx import HTTPError
@@ -111,13 +112,14 @@ def validate_order(
 		as_dict=True,
 	)
 	if existing_so:
-		so_status = STATUS_MAPPING.get(order.order_status)
-		if existing_so.status == so_status:
-			return False
-		if so_status == "Cancelled":
-			frappe.get_doc("Sales Order", existing_so.name).cancel()
-		else:
-			frappe.db.set_value("Sales Order", existing_so.name, "status", so_status)
+		if settings.sync_so_status:
+			so_status = STATUS_MAPPING.get(order.order_status)
+			if existing_so.status == so_status:
+				return False
+			if so_status == "Cancelled":
+				frappe.get_doc("Sales Order", existing_so.name).cancel()
+			else:
+				frappe.db.set_value("Sales Order", existing_so.name, "status", so_status)
 		return False
 
 	# only create orders for warehouses defined in Shipstation Settings;
@@ -250,7 +252,6 @@ def create_erpnext_order(
 				"cost_center": store.cost_center,
 			},
 		)
-
 	so.save()
 	if store.customer:
 		so.customer_name = order.customer_email
@@ -306,25 +307,26 @@ def create_erpnext_order(
 			)
 
 	so.save()
-	so.status = STATUS_MAPPING.get(order.order_status)
+	if settings.sync_so_status:
+		so.status = STATUS_MAPPING.get(order.order_status)
+
+	before_submit_hook = frappe.get_hooks("update_shipstation_order_before_submit")
+	if before_submit_hook:
+		so = frappe.get_attr(before_submit_hook[0])(store, so, order)
+		if so:
+			so.save()
+
+	if so:
+		so.submit()
+
+	after_submit_hook = frappe.get_hooks("update_shipstation_order_after_submit")
+	if after_submit_hook:
+		frappe.get_attr(after_submit_hook[0])(store, so, order)
 
 	if so.status == "Cancelled":
 		so.cancel()
-	else:
-		before_submit_hook = frappe.get_hooks("update_shipstation_order_before_submit")
-		if before_submit_hook:
-			so = frappe.get_attr(before_submit_hook[0])(store, so, order)
-			if so:
-				so.save()
 
-		if so:
-			so.submit()
-			frappe.db.commit()
-
-		after_submit_hook = frappe.get_hooks("update_shipstation_order_after_submit")
-		if after_submit_hook:
-			frappe.get_attr(after_submit_hook[0])(store, so, order)
-			frappe.db.commit()
+	frappe.db.commit()
 
 	return so.name if so else None
 
@@ -338,3 +340,44 @@ def get_item_notes(item: "ShipStationOrderItem"):
 				notes = option.value
 				break
 	return notes
+
+
+def update_shipstation_order_status(
+	order_id: str,
+	status: str,
+	settings: "ShipstationSettings",
+):
+	# Create the integration request log entry
+	integration_request = create_request_log(
+		data={},
+		is_remote_request=1,
+		service_name="ShipStation",
+		request_id=order_id,
+		request_description="Update Order Status",
+		status="Queued",
+	)
+
+	try:
+		# Map the internal status to ShipStation's status format
+		order_status = {value: key for key, value in STATUS_MAPPING.items()}.get(status)
+		client = settings.client()
+
+		order = client.get_order(order_id)
+
+		# Update the order status within `data`
+		order.order_status = order_status
+		integration_request.data = order.json()
+		integration_request.output = client.create_order(order).json()
+		integration_request.status = "Completed"
+
+	except Exception as e:
+		# Handle any exceptions and log the error
+		error_message = f"Exception occurred: {str(e)}\n{frappe.get_traceback()}"
+		integration_request.status = "Failed"
+		integration_request.error = error_message
+		frappe.log_error(title="Error while updating ShipStation order status", message=error_message)
+
+	finally:
+		# Save the integration request log and commit changes
+		integration_request.save()
+		frappe.db.commit()
