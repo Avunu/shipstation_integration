@@ -50,9 +50,7 @@ def get_formula_based_commission(doc, commission_formula=None):
 
 	eval_globals = frappe._dict(
 		{
-			"frappe": frappe._dict(
-				{"get_value": frappe.db.get_value, "get_all": frappe.db.get_all}
-			),
+			"frappe": frappe._dict({"get_value": frappe.db.get_value, "get_all": frappe.db.get_all}),
 			"flt": frappe.utils.data.flt,
 			"min": min,
 			"max": max,
@@ -64,9 +62,7 @@ def get_formula_based_commission(doc, commission_formula=None):
 	}
 
 	try:
-		return frappe.safe_eval(
-			commission_formula, eval_globals=eval_globals, eval_locals=eval_locals
-		)
+		return frappe.safe_eval(commission_formula, eval_globals=eval_globals, eval_locals=eval_locals)
 	except Exception as e:
 		print("Error evaluating commission formula:\n", e)
 		e = f"{e}\n{doc.as_dict()}"
