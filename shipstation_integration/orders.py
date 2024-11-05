@@ -328,6 +328,13 @@ def create_erpnext_order(
 
 	frappe.db.commit()
 
+	if order.tag_ids:
+		for tag_id in order.tag_ids:
+			tag_name = frappe.db.exists("Tag", {"tag_id": tag_id})
+			if tag_name:
+				so.add_tag(tag_name)
+				# frappe.db.commit()
+
 	return so.name if so else None
 
 
