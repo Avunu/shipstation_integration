@@ -1,11 +1,12 @@
 import datetime
 from decimal import Decimal
-from typing import TYPE_CHECKING, Union
+from typing import TYPE_CHECKING
 
 import frappe
 from erpnext.stock.doctype.item.item import get_uom_conv_factor
 from frappe.utils import flt, getdate
 from frappe.utils.safe_exec import is_job_queued
+from frappe.integrations.utils import create_request_log
 from httpx import HTTPError
 
 from shipstation_integration.customer import create_customer, get_billing_address
@@ -112,14 +113,13 @@ def validate_order(
 	)
 	if existing_so:
 		if settings.sync_so_status:
-			# TODO: break this out into a separate function for all status updating functionality
 			so_status = STATUS_MAPPING.get(order.order_status)
-		if existing_so.status == so_status:
-			return False
-		if so_status == "Cancelled":
-			frappe.get_doc("Sales Order", existing_so.name).cancel()
-		else:
-			frappe.db.set_value("Sales Order", existing_so.name, "status", so_status)
+			if existing_so.status == so_status:
+				return False
+			if so_status == "Cancelled":
+				frappe.get_doc("Sales Order", existing_so.name).cancel()
+			else:
+				frappe.db.set_value("Sales Order", existing_so.name, "status", so_status)
 		return False
 
 	# only create orders for warehouses defined in Shipstation Settings;
@@ -307,7 +307,6 @@ def create_erpnext_order(
 			)
 
 	so.save()
-	# TODO: move this to the same function as the status update code above is getting moved to?
 	if settings.sync_so_status:
 		so.status = STATUS_MAPPING.get(order.order_status)
 
@@ -319,17 +318,15 @@ def create_erpnext_order(
 
 	if so:
 		so.submit()
-		frappe.db.commit()
 
 	after_submit_hook = frappe.get_hooks("update_shipstation_order_after_submit")
 	if after_submit_hook:
 		frappe.get_attr(after_submit_hook[0])(store, so, order)
-		frappe.db.commit()
 
 	if so.status == "Cancelled":
 		so.cancel()
-		# TODO: I moved this cancel block down to be called after submit. I added the db commit. Do we need it?
-		frappe.db.commit()
+
+	frappe.db.commit()
 
 	return so.name if so else None
 
@@ -344,94 +341,43 @@ def get_item_notes(item: "ShipStationOrderItem"):
 				break
 	return notes
 
-# Update the status of an order in ShipStation, called on change of Sales Order status
+
 def update_shipstation_order_status(
 	order_id: str,
 	status: str,
 	settings: "ShipstationSettings",
-	store_id: int,
-	order_date: datetime.datetime,
-	billing_address: dict,
-	shipping_address: dict,
-) -> Union[bool, str]:
-	# Initialize variables for logging
-	# Define the ShipStation API endpoint
-	endpoint = "/orders/createorder"
-	# make sure order date is a string like this "2015-06-29T08:46:27.0000000"
-	if not isinstance(order_date, str):
-		order_date = order_date.strftime("%Y-%m-%dT%H:%M:%S.%f")
-	# url = "https://ssapi.shipstation.com/orders/createorder"
-	# {
-#     "Message": "The request is invalid.",
-#     "ModelState": {
-#         "apiOrder.orderDate": [
-#             "The orderDate field is required."
-#         ],
-#         "apiOrder.billTo": [
-#             "The billTo field is required."
-#         ],
-#         "apiOrder.shipTo": [
-#             "The shipTo field is required."
-#         ]
-#     }
-# }
-
-	data = {
-		"orderId": order_id,
-		"orderNumber": order_id,
-		"orderStatus": {value: key for key, value in STATUS_MAPPING.items()}.get(status),
-		"storeId": store_id,
-		"orderDate": order_date,
-		"billTo": billing_address,
-		"shipTo": shipping_address,
-	}
-	# TODO: use frappe.utils.create_request_log() instead, do as much in one call after we get a response from client.
-	request_log = {
-		"request_id": order_id,
-		"integration_request_service": "ShipStation",
-		"is_remote_request": 1,
-		"url": f"https://ssapi.shipstation.com{endpoint}",
-		"data": data,
-		"status": "Queued",
-		"request_description": f"Update order status to '{status}' for order ID {order_id}",
-	}
-	log_entry = frappe.get_doc({"doctype": "Integration Request", **request_log}).insert()
+):
+	# Create the integration request log entry
+	integration_request = create_request_log(
+		data={},
+		is_remote_request=1,
+		service_name="ShipStation",
+		request_id=order_id,
+		request_description="Update Order Status",
+		status="Queued",
+	)
 
 	try:
-		# /debug
-		message = f'Doing the sync from erp to ss. Data: {data}'
-		frappe.publish_realtime("debug", message, user='Administrator')
-		# \debug
+		# Map the internal status to ShipStation's status format
+		order_status = {value: key for key, value in STATUS_MAPPING.items()}.get(status)
 		client = settings.client()
-		# SHIPSTATION OBJECT HAS NO ATTRIBUTE 'BASE_URL'
-		# base_url = client.base_url
-		response = client.post(endpoint=endpoint, data=data)
 
-		if response.ok:
-			# Update log entry on success
-			log_entry.status = "Completed"
-			log_entry.output = response.text
-			log_entry.save(ignore_permissions=True)
+		order = client.get_order(order_id)
 
-			# /debug
-			frappe.publish_realtime("debug", f'SS order status updated: {order_id} -> {status}', user='Administrator')
-			# \debug
-			return True
-
-		else:
-			error_message = f"Error: ShipStation API returned status {response.status_code}: {response.text}"
-			log_entry.status = "Failed"
-			log_entry.error = error_message
-			log_entry.save(ignore_permissions=True)
-
-			return error_message
+		# Update the order status within `data`
+		order.order_status = order_status
+		integration_request.data = order.json()
+		integration_request.output = client.create_order(order).json()
+		integration_request.status = "Completed"
 
 	except Exception as e:
-		# Log any exceptions that occur during the request
+		# Handle any exceptions and log the error
 		error_message = f"Exception occurred: {str(e)}\n{frappe.get_traceback()}"
+		integration_request.status = "Failed"
+		integration_request.error = error_message
 		frappe.log_error(title="Error while updating ShipStation order status", message=error_message)
-		log_entry.status = "Failed"
-		log_entry.error = error_message
-		log_entry.save(ignore_permissions=True)
 
-		return error_message
+	finally:
+		# Save the integration request log and commit changes
+		integration_request.save()
+		frappe.db.commit()

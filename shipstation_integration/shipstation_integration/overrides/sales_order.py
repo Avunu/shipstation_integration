@@ -13,45 +13,25 @@ class ShipStationSalesOrder(SalesOrder):
 			self.total_commission = get_formula_based_commission(self, commission_formula)
 	
 	def get_sss(self):
-		sss_name, store_id = frappe.db.get_value(
+		sss_name = frappe.db.get_value(
 				"Shipstation Store",
 				{
 					"store_name": self.shipstation_store_name,
 					"marketplace_name": self.marketplace,
 				},
-				["parent","store_id"],
+				["parent"],
 		)
 		if sss_name:
-			return frappe.get_doc("Shipstation Settings", sss_name), store_id
+			return frappe.get_doc("Shipstation Settings", sss_name)
 		else:
-			return None, None
+			return None
 	
 	# synchronize status with shipstation, depends on sync_so_status in Shipstation Settings
 	def on_change(self):
 		if self.shipstation_order_id and self.has_value_changed("status") and self.status not in ["Draft", "Closed"]:
-			sss, store_id = self.get_sss()
+			sss = self.get_sss()
 			if sss and sss.enabled and sss.sync_so_status:
-				billing_address = self.address_display
-				shipping_address = self.shipping_address
-				# we need to make a dict for each address
-				# this is what ss is expecting
-				# TODO: figure out how much of this stuff we can get away with not sending
-				# "name": "The President",
-				# "company": "US GOVT",
-				# "street1": "1600 PENNSYLVANIA AVE NW",
-				# "street2": "OVAL OFFICE",
-				# "street3": null,
-				# "city": "WASHINGTON",
-				# "state": "DC",
-				# "postalCode": "20500-0005",
-				# "country": "US",
-				# "phone": "555-555-5555",
-				# "residential": null,
-				# "addressVerified": null
-				# to get the name, we need to go from so.customer to customer to customer.customer_primary_contact to contact to contact.full_name
-				# the addresses on the so are strings, with 4 lines. split the lines and assign them to the dict. the first three lines are easy, they correlate to street1, street2, street3. the fourth line is the city, state, postal code. the city is before a comma, the state is after the comma and before the space, the postal code is after the space. the country will be so.territory
-				# country will be so.territory
-				update_shipstation_order_status(settings=sss, order_id=self.shipstation_order_id, status=self.status, store_id=store_id, order_date=self.transaction_date)
+				update_shipstation_order_status(settings=sss, order_id=self.shipstation_order_id, status=self.status)
 
 def get_formula_based_commission(doc, commission_formula=None):
 	if not commission_formula:
