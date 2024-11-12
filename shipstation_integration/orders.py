@@ -59,8 +59,10 @@ def list_orders(
 		client.timeout = 60 * 5
 
 		if not last_order_datetime:
-			# Get data for the last day, Shipstation API behaves oddly when it's a shorter period
-			last_order_datetime = datetime.datetime.utcnow() - datetime.timedelta(hours=24)
+			# get data for the last day, Shipstation API behaves oddly when it's a shorter period
+			last_order_datetime = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(
+				hours=sss_doc.get("hours_to_fetch", 24)
+			)
 
 		store: "ShipstationStore"
 		for store in sss_doc.shipstation_stores:

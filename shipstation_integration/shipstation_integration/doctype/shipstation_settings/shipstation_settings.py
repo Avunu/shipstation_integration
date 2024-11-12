@@ -43,6 +43,7 @@ class ShipstationSettings(Document):
 	def validate(self):
 		self.validate_label_generation()
 		self.validate_enabled_stores()
+		self.validate_hours_to_fetch()
 		self.validate_sync_so_status()
 
 	def before_insert(self):
@@ -84,6 +85,10 @@ class ShipstationSettings(Document):
 				store.create_sales_invoice = False
 				store.create_delivery_note = False
 				store.create_shipment = False
+
+	def validate_hours_to_fetch(self):
+		if self.hours_to_fetch < 24:
+			frappe.throw(_("Order age should be no less than 24."))
 
 	def validate_sync_so_status(self):
 		if self.sync_so_status and not self.shipstation_user:
