@@ -43,6 +43,7 @@ class ShipstationSettings(Document):
 	def validate(self):
 		self.validate_label_generation()
 		self.validate_enabled_stores()
+		self.validate_sync_so_status()
 
 	def before_insert(self):
 		self.validate_api_connection()
