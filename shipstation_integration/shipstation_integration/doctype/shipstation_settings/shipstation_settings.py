@@ -84,6 +84,10 @@ class ShipstationSettings(Document):
 				store.create_delivery_note = False
 				store.create_shipment = False
 
+    def validate_sync_so_status(self):
+		if self.sync_so_status and not self.shipstation_user:
+			frappe.throw(_("Please set Shipstation User to sync sales order status"))
+
 	def validate_api_connection(self):
 		if not self.enabled:
 			return

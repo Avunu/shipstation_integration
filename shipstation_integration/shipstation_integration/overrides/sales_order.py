@@ -36,7 +36,7 @@ class ShipStationSalesOrder(SalesOrder):
 			and self.status not in ["Draft", "Closed"]
 		):
 			sss = self.get_sss()
-			if sss and sss.enabled and sss.sync_so_status:
+			if sss and sss.enabled and sss.sync_so_status and frappe.session.user != sss.shipstation_user:
 				update_shipstation_order_status(
 					settings=sss, order_id=self.shipstation_order_id, status=self.status
 				)
