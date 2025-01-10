@@ -200,7 +200,7 @@ def create_erpnext_order(
 		# the only way to identify marketplace discounts via the Shipstation API is
 		# to find it using the `line_item_key` string
 		if item.line_item_key == "discount":
-			discount_amount += abs(rate * item.quantity)
+			discount_amount += abs(float(rate) * float(item.quantity))
 			continue
 
 		settings = frappe.get_doc("Shipstation Settings", store.parent)
@@ -254,11 +254,28 @@ def create_erpnext_order(
 				"cost_center": store.cost_center,
 			},
 		)
-	so.save()
+	# debug
+	# frappe.log_error("sales order", so.as_dict())
+	if float(order.order_total) < float(0):
+		so.is_return = 1
+	try:
+		so.save()
+	except Exception as e:
+		frappe.log_error(
+			title="Error while creating Shipstation order",
+   			message="""
+				Error: {e}
+				Order: {order}
+				Sales Order: {so}
+			""".format(e=e, order=order, so=so.as_dict()))
+		return
 	if store.customer:
 		so.customer_name = order.customer_email
 	# coupons
-	if order.amount_paid and Decimal(so.grand_total).quantize(Decimal(".01")) != order.amount_paid:
+	if (
+		getattr(order, "amount_paid", 0) > 0  # skip negative (returned) amount_paid values
+		and Decimal(so.grand_total).quantize(Decimal(".01")) != order.amount_paid
+	):
 		difference_amount = Decimal(Decimal(so.grand_total).quantize(Decimal(".01")) - order.amount_paid)
 		so.shipstation_discount = difference_amount
 		account = store.difference_account
@@ -289,7 +306,7 @@ def create_erpnext_order(
 			},
 		)
 
-	if discount_amount > 0:
+	if discount_amount > 0 and float(order.order_total) > float(discount_amount):
 		so.apply_discount_on = "Grand Total"
 		so.discount_amount = discount_amount
 
