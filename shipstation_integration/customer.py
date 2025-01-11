@@ -3,6 +3,8 @@ from typing import TYPE_CHECKING
 import frappe
 from frappe.exceptions import DuplicateEntryError
 from frappe.utils import getdate, parse_addr
+from nameparser import HumanName
+
 
 if TYPE_CHECKING:
 	from erpnext.selling.doctype.sales_order.sales_order import SalesOrder
@@ -164,22 +166,38 @@ def create_customer(order: "ShipStationOrder"):
 
 
 def create_contact(order: "ShipStationOrder", customer_name: str):
-	contact = frappe.get_value("Contact Email", {"email_id": customer_name}, "parent")
-	if contact:
-		return frappe._dict({"name": contact})
-	cont: "Contact" = frappe.new_doc("Contact")
-	cont.first_name = order.bill_to.name or "Not Provided"
-	for char in "<>":
-		cont.first_name = cont.first_name.replace(char, "")
-	if customer_name:
-		cont.append("email_ids", {"email_id": customer_name})
-		cont.append("links", {"link_doctype": "Customer", "link_name": customer_name})
-	try:
-		cont.save()
-		frappe.db.commit()
-		return cont
-	except Exception as e:
-		frappe.log_error(title="Error saving Shipstation Contact", message=e)
+    contact = frappe.get_value("Contact Email", {"email_id": customer_name}, "parent")
+    if contact:
+        return frappe._dict({"name": contact})
+    
+    cont: "Contact" = frappe.new_doc("Contact")
+    
+    # Parse the name using HumanName
+    name = HumanName(order.bill_to.name or "Not Provided")
+    
+    # Map the parsed name parts to contact fields
+    cont.salutation = name.title
+    cont.first_name = name.first or "Not Provided"
+    cont.middle_name = name.middle
+    cont.last_name = name.last
+    cont.suffix = name.suffix
+    
+    # Remove any < > characters from all name fields
+    for field in ['first_name', 'middle_name', 'last_name', 'suffix']:
+        if getattr(cont, field):
+            for char in "<>":
+                setattr(cont, field, getattr(cont, field).replace(char, ""))
+    
+    if customer_name:
+        cont.append("email_ids", {"email_id": customer_name})
+        cont.append("links", {"link_doctype": "Customer", "link_name": customer_name})
+    
+    try:
+        cont.save()
+        frappe.db.commit()
+        return cont
+    except Exception as e:
+        frappe.log_error(title="Error saving Shipstation Contact", message=e)
 
 
 def overwrite_validate_phone_number(data, throw=False):
