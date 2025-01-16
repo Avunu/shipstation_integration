@@ -1,11 +1,11 @@
 from typing import TYPE_CHECKING
 
 import frappe
+import re
 from frappe.exceptions import DuplicateEntryError
 from frappe.utils import getdate, parse_addr
 from nameparser import HumanName
 from shipstation.api import ShipStation
-import hashlib
 
 if TYPE_CHECKING:
     from erpnext.selling.doctype.sales_order.sales_order import SalesOrder
@@ -77,11 +77,9 @@ def _update_address(address: "ShipStationAddress", addr: "Address", email: str, 
     addr.city = address.city
     addr.state = address.state
     addr.pincode = address.postal_code
-    addr.country = frappe.get_cached_value(
-        "Country", {"code": address.country.lower()}, "name"
-    )
+    addr.country = frappe.get_cached_value("Country", {"code": address.country.lower()}, "name")
     addr.phone = address.phone
-    addr.email = email
+    addr.email_id = email
     try:
         addr.save()
         return addr
@@ -190,7 +188,15 @@ def create_contact_from_customer(customer: "ShipStationCustomer"):
     # Parse the name using HumanName
     name = HumanName(customer.name or "Not Provided")
 
-    cont.salutation = name.title
+    title = re.sub(r"[^\w\s]", "", name.title.strip().title())
+    title_exists = frappe.db.exists("Salutation", title)
+    if not title_exists:
+        salutation = frappe.new_doc("Salutation")
+        salutation.title = title
+        salutation.save()
+        frappe.db.commit()
+
+    cont.salutation = title
     cont.first_name = name.first or "Not Provided"
     cont.middle_name = name.middle
     cont.last_name = name.last
@@ -275,20 +281,37 @@ def match_or_create_address(
     if not address or not address.street1:
         return None
 
-    # Look for existing address with same hash
-    existing_address = frappe.db.exists(
-        "Address",
-        {
-            "address_line1": address.street1,
-            "address_line2": address.street2,
-            "pincode": address.postal_code,
-        },
+    from frappe.query_builder import DocType
+    from frappe.query_builder.functions import Lower
+
+    Address = DocType("Address")
+
+    # Case insensitive match on core address fields
+    query = (
+        frappe.qb.from_(Address)
+        .select(Address.name)
+        .where(Lower(Address.address_line1) == address.street1.lower())
+        .where(Lower(Address.city) == address.city.lower())
+        .limit(1)
     )
 
-    if existing_address:
-        return update_address(address, existing_address, email, address_type)
+    existing_address = query.run(as_dict=True)
 
-    # Create new address
-    addr = create_address(address, customer, email, address_type)
-    addr.save()
-    return addr
+    if existing_address and existing_address[0]:
+        addr = frappe.get_doc("Address", existing_address[0].get("name"))
+        # Check if this customer is already linked
+        has_customer_link = frappe.db.exists(
+            "Dynamic Link",
+            {"parent": addr.name, "link_doctype": "Customer", "link_name": customer},
+        )
+
+        if not has_customer_link:
+            addr.append("links", {"link_doctype": "Customer", "link_name": customer})
+
+        # Update address type and other details
+        addr.address_type = address_type
+        _update_address(address, addr, email, address_type)
+        return addr
+
+    # Create new address if no match found
+    return create_address(address, customer, email, address_type)
