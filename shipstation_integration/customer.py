@@ -78,7 +78,7 @@ def _update_address(address: "ShipStationAddress", addr: "Address", email: str, 
     addr.state = address.state
     addr.pincode = address.postal_code
     addr.country = frappe.get_cached_value(
-        "Country", {"code": address.country_code.lower()}, "name"
+        "Country", {"code": address.country.lower()}, "name"
     )
     addr.phone = address.phone
     addr.email = email
