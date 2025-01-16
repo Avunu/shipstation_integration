@@ -4,13 +4,14 @@ import frappe
 from frappe.exceptions import DuplicateEntryError
 from frappe.utils import getdate, parse_addr
 from nameparser import HumanName
-
+from shipstation.api import ShipStation
 
 if TYPE_CHECKING:
 	from erpnext.selling.doctype.sales_order.sales_order import SalesOrder
 	from frappe.contacts.doctype.address.address import Address
 	from frappe.contacts.doctype.contact.contact import Contact
-	from shipstation.models import ShipStationAddress, ShipStationOrder
+	from erpnext.selling.doctype.customer.customer import Customer
+	from shipstation.models import ShipStationCustomer, ShipStationAddress, ShipStationOrder
 
 	from shipstation_integration.shipstation_integration.doctype.shipstation_store.shipstation_store import (
 		ShipstationStore,
@@ -18,62 +19,32 @@ if TYPE_CHECKING:
 
 
 def update_customer_details(
-	existing_so: str, order: "ShipStationOrder", store: "ShipstationStore"
+	existing_so: str, customer: "ShipStationCustomer", store: "ShipstationStore"
 ):
 	existing_so_doc: "SalesOrder" = frappe.get_doc("Sales Order", existing_so)
 
-	email_id, _ = parse_addr(existing_so_doc.amazon_customer)
+	email_id = customer.email
 	if email_id:
-		contact = create_contact(order, email_id)
-		existing_so_doc.contact_person = contact.name
+		contact = create_contact_from_customer(customer)
+		existing_so_doc.contact_person = contact.name if contact else None
 
-	existing_so_doc.update(
-		{
-			"shipstation_order_id": order.order_id,
-			"shipstation_store_name": store.store_name,
-			"shipstation_customer_notes": getattr(order, "customer_notes", None),
-			"shipstation_internal_notes": getattr(order, "internal_notes", None),
-			"marketplace_order_id": order.order_number,
-			"delivery_date": getdate(order.ship_date),
-			"has_pii": True,
-			"integration_doctype": "Shipstation Settings",
-			"integration_doc": store.parent,
-		}
-	)
+	existing_so_doc.update({
+		"customer_name": customer.name or customer.email,
+		"has_pii": True,
+		"integration_doctype": "Shipstation Settings",
+		"integration_doc": store.parent,
+	})
 
-	if order.bill_to and order.bill_to.street1:
+	# Handle addresses if present
+	if customer.street1:
 		if existing_so_doc.customer_address:
 			bill_address = update_address(
-				order.bill_to,
-				existing_so_doc.customer_address,
-				order.customer_email,
-				"Billing",
+				customer, existing_so_doc.customer_address, customer.email, "Billing"
 			)
 		else:
-			bill_address = create_address(
-				order.bill_to,
-				existing_so_doc.amazon_customer,
-				order.customer_email,
-				"Billing",
-			)
+			bill_address = create_address(customer, customer.name, customer.email, "Billing")
 			existing_so_doc.customer_address = bill_address.name
-	if order.ship_to and order.ship_to.street1:
-		if existing_so_doc.shipping_address_name:
-			ship_address = update_address(
-				order.ship_to,
-				existing_so_doc.shipping_address_name,
-				order.customer_email,
-				"Shipping",
-			)
-		else:
-			ship_address = create_address(
-				order.ship_to,
-				existing_so_doc.amazon_customer,
-				order.customer_email,
-				"Shipping",
-			)
-			existing_so_doc.shipping_address_name = ship_address.name
-
+			
 	existing_so_doc.flags.ignore_validate_update_after_submit = True
 	existing_so_doc.run_method("set_customer_address")
 	existing_so_doc.save()
@@ -113,49 +84,78 @@ def _update_address(address: "ShipStationAddress", addr: "Address", email: str, 
 		frappe.log_error(title="Error saving Shipstation Address", message=e)
 
 
-def create_customer(order: "ShipStationOrder"):
-	customer_name = (
-		order.customer_email or order.customer_id or order.ship_to.name or frappe.generate_hash("", 10)
-	)
+def create_customer(order: "ShipStationOrder", settings=None) -> "Customer":
+	"""Create or update a customer from ShipStation data"""
+	if not settings:
+		settings = frappe.get_cached_doc("Shipstation Settings", {"enabled": 1})
+	
+	customer_id = order.customer_id
+	if customer_id:
+		# Check if customer exists with this ID
+		existing_customer = frappe.db.get_value(
+			"Customer", {"shipstation_customer_id": customer_id}, "name"
+		)
+		if existing_customer:
+			return frappe.get_doc("Customer", existing_customer)
 
-	if (
-		frappe.get_cached_value("Selling Settings", "Selling Settings", "cust_master_name")
-		!= "Customer Name"
-	):
-		customer = frappe.db.get_value("Customer", {"customer_name": customer_name})
-		return frappe.get_doc("Customer", customer)
+		# Fetch full customer data from ShipStation
+		client = settings.client()
+		ss_customer = client.get_customer(customer_id)
 	else:
-		if frappe.db.exists("Customer", customer_name):
-			return frappe.get_doc("Customer", customer_name)
+		ss_customer = None
 
+	# Check if customer exists with same email
+	customer_email = order.customer_email
+	if customer_email:
+		existing_customer = frappe.db.get_value(
+			"Customer", {"customer_name": customer_email}, "name"
+		)
+		if existing_customer:
+			cust = frappe.get_doc("Customer", existing_customer)
+			if customer_id and not cust.get("shipstation_customer_id"):
+				cust.shipstation_customer_id = customer_id
+				cust.save()
+			return cust
+
+	# Create new customer
 	cust = frappe.new_doc("Customer")
-	cust.shipstation_customer_id = order.customer_id
-	cust.customer_name = customer_name
+	cust.shipstation_customer_id = customer_id
+	cust.customer_name = ss_customer.name if ss_customer else customer_email
 	cust.customer_type = "Individual"
 	cust.customer_group = "ShipStation"
 	cust.territory = "United States"
+
 	try:
 		cust.save()
 		frappe.db.commit()
-	# this is a bad way to do this but its unclear why its happening
-	except DuplicateEntryError as e:
-		frappe.log_error(title="DuplicateEntryError on Customer", message=e)
-		customer = frappe.db.get_value("Customer", {"customer_name": customer_name})
-		return frappe.get_doc("Customer", customer_name)
+	except DuplicateEntryError:
+		return frappe.get_doc("Customer", {"customer_name": cust.customer_name})
 	except Exception as e:
 		frappe.log_error(title="Error creating Shipstation Customer", message=e)
 		raise e
 
-	email_id, _ = parse_addr(customer_name)
-	if email_id:
-		customer_primary_contact = create_contact(order, email_id)
-		if customer_primary_contact:
-			cust.customer_primary_contact = customer_primary_contact.name
+	# Create contact and addresses
+	if ss_customer:
+		if ss_customer.email:
+			contact = create_contact_from_customer(ss_customer)
+			if contact:
+				cust.customer_primary_contact = contact.name
 
-	if order.ship_to.street1:
-		create_address(order.ship_to, customer_name, order.customer_email, "Shipping")
-	if order.bill_to.street1:
-		create_address(order.bill_to, order.customer_username, order.customer_email, "Billing")
+		# Create addresses from ShipStation customer data
+		if ss_customer.street1:
+			create_address(ss_customer, cust.name, ss_customer.email, "Billing")
+	else:
+		# Fallback to order data if no customer data available
+		email_id, _ = parse_addr(cust.customer_name)
+		if email_id:
+			contact = create_contact(order, email_id)
+			if contact:
+				cust.customer_primary_contact = contact.name
+
+		if order.ship_to.street1:
+			create_address(order.ship_to, cust.name, order.customer_email, "Shipping")
+		if order.bill_to.street1:
+			create_address(order.bill_to, cust.name, order.customer_email, "Billing")
 
 	try:
 		cust.save()
@@ -163,6 +163,41 @@ def create_customer(order: "ShipStationOrder"):
 		return cust
 	except Exception as e:
 		frappe.log_error(title="Error saving Shipstation Customer", message=e)
+
+
+def create_contact_from_customer(customer: "ShipStationCustomer"):
+	"""Create a contact from ShipStation customer data"""
+	if customer.email:
+		contact = frappe.get_value("Contact Email", {"email_id": customer.email}, "parent")
+		if contact:
+			return frappe._dict({"name": contact})
+	
+	cont = frappe.new_doc("Contact")
+	
+	# Parse the name using HumanName
+	name = HumanName(customer.name or "Not Provided")
+	
+	cont.salutation = name.title
+	cont.first_name = name.first or "Not Provided"
+	cont.middle_name = name.middle
+	cont.last_name = name.last
+	cont.suffix = name.suffix
+	
+	# Clean name fields
+	for field in ['first_name', 'middle_name', 'last_name', 'suffix']:
+		if getattr(cont, field):
+			for char in "<>":
+				setattr(cont, field, getattr(cont, field).replace(char, ""))
+	
+	cont.append("email_ids", {"email_id": customer.email})
+	cont.append("links", {"link_doctype": "Customer", "link_name": customer.name})
+	
+	try:
+		cont.save()
+		frappe.db.commit()
+		return cont
+	except Exception as e:
+		frappe.log_error(title="Error saving Shipstation Contact", message=e)
 
 
 def create_contact(order: "ShipStationOrder", customer_name: str):
