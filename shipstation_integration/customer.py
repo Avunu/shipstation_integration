@@ -158,10 +158,9 @@ def create_customer(order: "ShipStationOrder", settings=None) -> "Customer":
 
     # Create contact and addresses
     if ss_customer:
-        if ss_customer.email:
-            contact = create_contact_from_customer(ss_customer)
-            if contact:
-                cust.customer_primary_contact = contact.name
+        contact = create_contact_from_customer(ss_customer)
+        if contact:
+            cust.customer_primary_contact = contact.name
     else:
         # Fallback to order data if no customer data available
         email_id, _ = parse_addr(cust.customer_name)
@@ -182,10 +181,11 @@ def create_contact_from_customer(customer: "ShipStationCustomer"):
     """Create a contact from ShipStation customer data"""
     if customer.email:
         contact = frappe.get_value("Contact Email", {"email_id": customer.email}, "parent")
-        if contact:
-            return frappe._dict({"name": contact})
 
-    cont = frappe.new_doc("Contact")
+    if contact:
+        cont = frappe.get_doc("Contact", contact)
+    else:
+        cont = frappe.new_doc("Contact")
 
     # Parse the name using HumanName
     name = HumanName(customer.name or "Not Provided")
