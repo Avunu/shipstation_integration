@@ -279,8 +279,8 @@ def match_or_create_address(
     existing_address = frappe.db.exists(
         "Address",
         {
-            "address_line1": address.line1,
-            "address_line2": address.line2,
+            "address_line1": address.street1,
+            "address_line2": address.street2,
             "pincode": address.postal_code,
         },
     )
