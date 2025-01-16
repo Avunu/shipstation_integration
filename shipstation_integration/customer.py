@@ -98,6 +98,8 @@ def create_customer(
     """Create or update a customer from ShipStation data"""
     if not settings:
         settings = frappe.get_cached_doc("Shipstation Settings", {"enabled": 1})
+    elif isinstance(settings, dict):
+        settings = frappe.get_cached_doc("Shipstation Settings", settings.get("name"))
 
     customer_id = order.customer_id
     if customer_id:
@@ -186,6 +188,8 @@ def create_customer(
         ss_customer = (
             order.get("ship_to") if order.get("ship_to", {}).get("name") else order.get("bill_to")
         )
+        if order.customer_email:
+            ss_customer.email = order.customer_email
         contact = create_contact_from_customer(ss_customer, cust.name)
         if contact:
             cust.customer_primary_contact = contact.name
@@ -307,10 +311,8 @@ def match_or_create_address(
         if not has_customer_link:
             addr.append("links", {"link_doctype": "Customer", "link_name": customer})
 
-        # Update address type and other details
-        addr.address_type = address_type
-        _update_address(address, addr, email, address_type)
-        return addr
+        # Update address details
+        return _update_address(address, addr, email, address_type)
 
     # Create new address if no match found
     return create_address(address, customer, email, address_type)

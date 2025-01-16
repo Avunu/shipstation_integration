@@ -105,6 +105,8 @@ def validate_order(
 ):
 	if not order:
 		return False
+	if not getattr(order, "items", None):
+		return False
 
 	# if an order already exists, skip, unless the status needs to be updated
 	existing_so = frappe.db.get_value(
@@ -151,7 +153,7 @@ def create_erpnext_order(
 	# Get shipping and billing addresses
 	shipping_address = match_or_create_address(order.ship_to, customer.name, order.customer_email, "Shipping")
 	billing_address = match_or_create_address(order.bill_to, customer.name, order.customer_email, "Billing")
-
+	
 	so: "SalesOrder" = frappe.new_doc("Sales Order")
 	so.update(
 		{
