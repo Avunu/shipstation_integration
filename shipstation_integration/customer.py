@@ -6,6 +6,8 @@ from frappe.exceptions import DuplicateEntryError
 from frappe.utils import getdate, parse_addr
 from nameparser import HumanName
 from shipstation.api import ShipStation
+from frappe.query_builder import DocType
+from frappe.query_builder.functions import Lower
 
 if TYPE_CHECKING:
     from erpnext.selling.doctype.sales_order.sales_order import SalesOrder
@@ -17,6 +19,9 @@ if TYPE_CHECKING:
     from shipstation_integration.shipstation_integration.doctype.shipstation_store.shipstation_store import (
         ShipstationStore,
     )
+    from shipstation_integration.shipstation_integration.doctype.shipstation_settings.shipstation_settings import (
+        ShipstationSettings,
+    )
 
 
 def update_customer_details(
@@ -26,7 +31,7 @@ def update_customer_details(
 
     email_id = customer.email
     if email_id:
-        contact = create_contact_from_customer(customer)
+        contact = create_contact_from_customer(customer, existing_so_doc.customer)
         existing_so_doc.contact_person = contact.name if contact else None
 
     existing_so_doc.update(
@@ -70,7 +75,7 @@ def update_address(
 
 
 def _update_address(address: "ShipStationAddress", addr: "Address", email: str, address_type: str):
-    addr.address_title = address.name or address.company
+    addr.address_title = address.company or address.name
     addr.address_type = address_type
     addr.address_line1 = address.street1
     addr.address_line2 = address.street2
@@ -87,7 +92,9 @@ def _update_address(address: "ShipStationAddress", addr: "Address", email: str, 
         frappe.log_error(title="Error saving Shipstation Address", message=e)
 
 
-def create_customer(order: "ShipStationOrder", settings=None) -> "Customer":
+def create_customer(
+    order: "ShipStationOrder", settings: "ShipstationSettings" = None
+) -> "Customer":
     """Create or update a customer from ShipStation data"""
     if not settings:
         settings = frappe.get_cached_doc("Shipstation Settings", {"enabled": 1})
@@ -108,21 +115,36 @@ def create_customer(order: "ShipStationOrder", settings=None) -> "Customer":
         ss_customer = None
 
     # Check if customer exists with same email
-    customer_email = order.customer_email
+    customer_email = order.customer_email.strip().lower()
     if customer_email:
-        existing_customer = frappe.db.get_value(
-            "Customer", {"customer_name": customer_email}, "name"
+        Customer = DocType("Customer")
+        customer_query = (
+            frappe.qb.from_(Customer)
+            .select(Customer.name)
+            .where(Lower(Customer.customer_name) == customer_email)
+            .limit(1)
         )
+        existing_customer = customer_query.run(as_dict=True)
+
         if not existing_customer:
-            existing_contact = frappe.db.get_value(
-                "Contact Email", {"email_id": customer_email}, "parent"
+            ContactEmail = DocType("Contact Email")
+            DynamicLink = DocType("Dynamic Link")
+
+            contact_query = (
+                frappe.qb.from_(ContactEmail)
+                .inner_join(DynamicLink)
+                .on(ContactEmail.parent == DynamicLink.parent)
+                .select(DynamicLink.link_name)
+                .where(Lower(ContactEmail.email_id) == customer_email)
+                .where(DynamicLink.link_doctype == "Customer")
+                .limit(1)
             )
-            if existing_contact:
-                existing_customer = frappe.db.get_value(
-                    "Dynamic Link",
-                    {"parent": existing_contact, "link_doctype": "Customer"},
-                    "link_name",
-                )
+            existing_customer = contact_query.run(as_dict=True)
+
+        if existing_customer:
+            existing_customer = existing_customer[0].get(
+                "name" if "name" in existing_customer[0] else "link_name"
+            )
 
     if existing_customer:
         cust = frappe.get_doc("Customer", existing_customer)
@@ -156,16 +178,17 @@ def create_customer(order: "ShipStationOrder", settings=None) -> "Customer":
 
     # Create contact and addresses
     if ss_customer:
-        contact = create_contact_from_customer(ss_customer)
+        contact = create_contact_from_customer(ss_customer, cust.name)
         if contact:
             cust.customer_primary_contact = contact.name
     else:
         # Fallback to order data if no customer data available
-        email_id, _ = parse_addr(cust.customer_name)
-        if email_id:
-            contact = create_contact(order, email_id)
-            if contact:
-                cust.customer_primary_contact = contact.name
+        ss_customer = (
+            order.get("ship_to") if order.get("ship_to", {}).get("name") else order.get("bill_to")
+        )
+        contact = create_contact_from_customer(ss_customer, cust.name)
+        if contact:
+            cust.customer_primary_contact = contact.name
 
     try:
         cust.save()
@@ -175,10 +198,23 @@ def create_customer(order: "ShipStationOrder", settings=None) -> "Customer":
         frappe.log_error(title="Error saving Shipstation Customer", message=e)
 
 
-def create_contact_from_customer(customer: "ShipStationCustomer"):
+def create_contact_from_customer(customer: "ShipStationCustomer", customer_name: str = None):
     """Create a contact from ShipStation customer data"""
+    contact = None
     if customer.email:
-        contact = frappe.get_value("Contact Email", {"email_id": customer.email}, "parent")
+        email = customer.email.strip().lower()
+        ContactEmail = DocType("Contact Email")
+        contact_query = (
+            frappe.qb.from_(ContactEmail)
+            .select(ContactEmail.parent)
+            .where(Lower(ContactEmail.email_id) == email)
+            .limit(1)
+        )
+        contact_result = contact_query.run(as_dict=True)
+        contact = contact_result[0].get("parent") if contact_result else None
+
+    if not contact:
+        return contact
 
     if contact:
         cont = frappe.get_doc("Contact", contact)
@@ -186,64 +222,30 @@ def create_contact_from_customer(customer: "ShipStationCustomer"):
         cont = frappe.new_doc("Contact")
 
     # Parse the name using HumanName
-    name = HumanName(customer.name or "Not Provided")
+    name = HumanName(customer.name)
 
     title = re.sub(r"[^\w\s]", "", name.title.strip().title())
-    title_exists = frappe.db.exists("Salutation", title)
-    if not title_exists:
-        salutation = frappe.new_doc("Salutation")
-        salutation.title = title
-        salutation.save()
-        frappe.db.commit()
+    if title:
+        title_exists = frappe.db.exists("Salutation", title)
+        if not title_exists:
+            salutation = frappe.new_doc("Salutation")
+            salutation.salutation = title
+            salutation.save()
+            frappe.db.commit()
+        cont.salutation = title
 
-    cont.salutation = title
-    cont.first_name = name.first or "Not Provided"
+    cont.first_name = name.first
     cont.middle_name = name.middle
     cont.last_name = name.last
-    cont.suffix = name.suffix
+    cont.designation = name.suffix
 
-    # Clean name fields
-    for field in ["first_name", "middle_name", "last_name", "suffix"]:
-        if getattr(cont, field):
-            for char in "<>":
-                setattr(cont, field, getattr(cont, field).replace(char, ""))
-
-    cont.append("email_ids", {"email_id": customer.email})
-    cont.append("links", {"link_doctype": "Customer", "link_name": customer.name})
-
-    try:
-        cont.save()
-        frappe.db.commit()
-        return cont
-    except Exception as e:
-        frappe.log_error(title="Error saving Shipstation Contact", message=e)
-
-
-def create_contact(order: "ShipStationOrder", customer_name: str):
-    contact = frappe.get_value("Contact Email", {"email_id": customer_name}, "parent")
-    if contact:
-        return frappe._dict({"name": contact})
-
-    cont: "Contact" = frappe.new_doc("Contact")
-
-    # Parse the name using HumanName
-    name = HumanName(order.bill_to.name or "Not Provided")
-
-    # Map the parsed name parts to contact fields
-    cont.salutation = name.title
-    cont.first_name = name.first or "Not Provided"
-    cont.middle_name = name.middle
-    cont.last_name = name.last
-    cont.suffix = name.suffix
-
-    # Remove any < > characters from all name fields
-    for field in ["first_name", "middle_name", "last_name", "suffix"]:
-        if getattr(cont, field):
-            for char in "<>":
-                setattr(cont, field, getattr(cont, field).replace(char, ""))
-
+    if customer.company:
+        cont.company_name = customer.company
+    if customer.phone:
+        cont.append("phone_nos", {"phone": customer.phone})
+    if customer.email:
+        cont.append("email_ids", {"email_id": customer.email})
     if customer_name:
-        cont.append("email_ids", {"email_id": customer_name})
         cont.append("links", {"link_doctype": "Customer", "link_name": customer_name})
 
     try:
@@ -280,9 +282,6 @@ def match_or_create_address(
     """Match existing address or create new one based on ShipStation address data"""
     if not address or not address.street1:
         return None
-
-    from frappe.query_builder import DocType
-    from frappe.query_builder.functions import Lower
 
     Address = DocType("Address")
 

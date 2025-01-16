@@ -145,7 +145,7 @@ def create_erpnext_order(
 	if settings.shipstation_user:
 		frappe.set_user(settings.shipstation_user)
 	customer = (
-		frappe.get_cached_doc("Customer", store.customer) if store.customer else create_customer(order)
+		frappe.get_cached_doc("Customer", store.customer) if store.customer else create_customer(order, settings)
 	)
 
 	# Get shipping and billing addresses
