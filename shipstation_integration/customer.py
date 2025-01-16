@@ -5,6 +5,7 @@ from frappe.exceptions import DuplicateEntryError
 from frappe.utils import getdate, parse_addr
 from nameparser import HumanName
 from shipstation.api import ShipStation
+import hashlib
 
 if TYPE_CHECKING:
     from erpnext.selling.doctype.sales_order.sales_order import SalesOrder
@@ -69,6 +70,7 @@ def update_address(
 
 
 def _update_address(address: "ShipStationAddress", addr: "Address", email: str, address_type: str):
+    addr.address_title = address.name or address.company
     addr.address_type = address_type
     addr.address_line1 = address.street1
     addr.address_line2 = address.street2
@@ -160,10 +162,6 @@ def create_customer(order: "ShipStationOrder", settings=None) -> "Customer":
             contact = create_contact_from_customer(ss_customer)
             if contact:
                 cust.customer_primary_contact = contact.name
-
-        # Create addresses from ShipStation customer data
-        if ss_customer.street1:
-            create_address(ss_customer, cust.name, ss_customer.email, "Billing")
     else:
         # Fallback to order data if no customer data available
         email_id, _ = parse_addr(cust.customer_name)
@@ -171,11 +169,6 @@ def create_customer(order: "ShipStationOrder", settings=None) -> "Customer":
             contact = create_contact(order, email_id)
             if contact:
                 cust.customer_primary_contact = contact.name
-
-        if order.ship_to.street1:
-            create_address(order.ship_to, cust.name, order.customer_email, "Shipping")
-        if order.bill_to.street1:
-            create_address(order.bill_to, cust.name, order.customer_email, "Billing")
 
     try:
         cust.save()
@@ -273,3 +266,29 @@ def get_billing_address(customer_name: str):
         as_dict=True,
     )
     return billing_address[0].get("name") if billing_address else None
+
+
+def match_or_create_address(
+    address: "ShipStationAddress", customer: str, email: str, address_type: str
+) -> "Address":
+    """Match existing address or create new one based on ShipStation address data"""
+    if not address or not address.street1:
+        return None
+
+    # Look for existing address with same hash
+    existing_address = frappe.db.exists(
+        "Address",
+        {
+            "address_line1": address.line1,
+            "address_line2": address.line2,
+            "pincode": address.postal_code,
+        },
+    )
+
+    if existing_address:
+        return update_address(address, existing_address, email, address_type)
+
+    # Create new address
+    addr = create_address(address, customer, email, address_type)
+    addr.save()
+    return addr
