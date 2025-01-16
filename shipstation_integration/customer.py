@@ -70,7 +70,6 @@ def _update_address(address: "ShipStationAddress", addr: "Address", email: str, 
 	addr.address_type = address_type
 	addr.address_line1 = address.street1
 	addr.address_line2 = address.street2
-	addr.address_line3 = address.street3
 	addr.city = address.city
 	addr.state = address.state
 	addr.pincode = address.postal_code
