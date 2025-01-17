@@ -164,7 +164,7 @@ def create_erpnext_order(
 			"marketplace": store.marketplace_name,
 			"marketplace_order_id": order.order_number,
 			"customer": customer.name,
-			"customer_name": order.customer_email,
+			"customer_name": customer.customer_name,
 			"company": store.company,
 			"transaction_date": getdate(order.order_date),
 			"delivery_date": getdate(order.ship_date),
