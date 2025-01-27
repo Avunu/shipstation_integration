@@ -285,7 +285,10 @@ def create_erpnext_order(order: "ShipStationOrder", store: "ShipstationStore") -
 		case 1:
 			so.submit()
 		case 2:
-			so.cancel()
+			try:
+				so.cancel()
+			except:
+				frappe.db.set_value("Sales Order", so.name, "status", "Cancelled")
 	
 	frappe.db.commit()
 	return so.name
