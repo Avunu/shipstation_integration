@@ -186,7 +186,7 @@ def create_customer(
     else:
         # Fallback to order data if no customer data available
         ss_customer = (
-            order.get("ship_to") if order.get("ship_to", {}).get("name") else order.get("bill_to")
+            order.ship_to if hasattr(getattr(order, "ship_to", {}), "name") else order.bill_to
         )
         if order.customer_email:
             ss_customer.email = order.customer_email
