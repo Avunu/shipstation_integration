@@ -118,6 +118,7 @@ def create_customer(
 
     # Check if customer exists with same email
     customer_email = order.customer_email.strip().lower()
+    existing_customer = None
     if customer_email:
         Customer = DocType("Customer")
         customer_query = (
