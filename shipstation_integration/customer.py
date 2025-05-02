@@ -15,12 +15,11 @@ if TYPE_CHECKING:
     from frappe.contacts.doctype.contact.contact import Contact
     from erpnext.selling.doctype.customer.customer import Customer
     from shipstation.models import ShipStationCustomer, ShipStationAddress, ShipStationOrder
-
-    from shipstation_integration.shipstation_integration.doctype.shipstation_store.shipstation_store import (
-        ShipstationStore,
-    )
     from shipstation_integration.shipstation_integration.doctype.shipstation_settings.shipstation_settings import (
         ShipstationSettings,
+    )
+    from shipstation_integration.shipstation_integration.doctype.shipstation_store.shipstation_store import (
+        ShipstationStore,
     )
 
 
@@ -165,8 +164,8 @@ def create_customer(
         or frappe.generate_hash("", 10)
     )
     cust.shipstation_customer_id = customer_id
-    cust.customer_name = ss_customer.name if ss_customer else customer_email
-    cust.customer_type = "Individual"
+    cust.customer_name = ss_customer.name if ss_customer else cust.name
+    cust.customer_type = "Company" if ss_customer and ss_customer.company else "Individual"
     cust.customer_group = "ShipStation"
     cust.territory = "United States"
 

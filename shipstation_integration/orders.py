@@ -9,7 +9,10 @@ from frappe.utils import flt, getdate
 from frappe.utils.safe_exec import is_job_queued
 from httpx import HTTPError
 
-from shipstation_integration.customer import create_customer, get_billing_address, match_or_create_address
+from shipstation_integration.customer import (
+    create_customer,
+    match_or_create_address,
+)
 from shipstation_integration.items import create_item
 
 if TYPE_CHECKING:
@@ -153,7 +156,7 @@ def create_erpnext_order(
 	# Get shipping and billing addresses
 	shipping_address = match_or_create_address(order.ship_to, customer.name, order.customer_email, "Shipping")
 	billing_address = match_or_create_address(order.bill_to, customer.name, order.customer_email, "Billing")
-	
+
 	so: "SalesOrder" = frappe.new_doc("Sales Order")
 	so.update(
 		{
