@@ -202,10 +202,12 @@ def create_customer(
         frappe.log_error(title="Error saving Shipstation Customer", message=e)
 
 
-def create_contact_from_customer(customer: "ShipStationCustomer", customer_name: str = None):
+def create_contact_from_customer(
+    customer: ShipStationCustomer | ShipStationAddress, customer_name: str = None
+):
     """Create a contact from ShipStation customer data"""
     contact = None
-    if customer.email:
+    if hasattr(customer, "email") and getattr(customer, "email"):
         email = customer.email.strip().lower()
         ContactEmail = DocType("Contact Email")
         contact_query = (
