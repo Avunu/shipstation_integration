@@ -203,7 +203,7 @@ def create_customer(
 
 
 def create_contact_from_customer(
-    customer: ShipStationCustomer | ShipStationAddress, customer_name: str = None
+    customer: "ShipStationCustomer" | "ShipStationAddress", customer_name: str = None
 ):
     """Create a contact from ShipStation customer data"""
     contact = None
