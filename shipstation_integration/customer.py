@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Union
 
 import frappe
 import re
@@ -203,11 +203,11 @@ def create_customer(
 
 
 def create_contact_from_customer(
-    customer: "ShipStationCustomer" | "ShipStationAddress", customer_name: str = None
+    customer: Union["ShipStationCustomer", "ShipStationAddress"], customer_name: str = None
 ):
     """Create a contact from ShipStation customer data"""
     contact = None
-    if hasattr(customer, "email") and getattr(customer, "email"):
+    if getattr(customer, "email", None):
         email = customer.email.strip().lower()
         ContactEmail = DocType("Contact Email")
         contact_query = (
@@ -245,11 +245,11 @@ def create_contact_from_customer(
     cont.last_name = name.last
     cont.designation = name.suffix
 
-    if hasattr(customer, "company") and getattr(customer, "company"):
+    if getattr(customer, "company", None):
         cont.company_name = customer.company
-    if hasattr(customer, "phone") and getattr(customer, "phone"):
+    if getattr(customer, "phone", None):
         cont.append("phone_nos", {"phone": customer.phone})
-    if hasattr(customer, "email") and getattr(customer, "email"):
+    if getattr(customer, "email", None):
         cont.append("email_ids", {"email_id": customer.email})
     if customer_name:
         cont.append("links", {"link_doctype": "Customer", "link_name": customer_name})
