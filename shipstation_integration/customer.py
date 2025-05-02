@@ -245,11 +245,11 @@ def create_contact_from_customer(
     cont.last_name = name.last
     cont.designation = name.suffix
 
-    if customer.company:
+    if hasattr(customer, "company") and getattr(customer, "company"):
         cont.company_name = customer.company
-    if customer.phone:
+    if hasattr(customer, "phone") and getattr(customer, "phone"):
         cont.append("phone_nos", {"phone": customer.phone})
-    if customer.email:
+    if hasattr(customer, "email") and getattr(customer, "email"):
         cont.append("email_ids", {"email_id": customer.email})
     if customer_name:
         cont.append("links", {"link_doctype": "Customer", "link_name": customer_name})
