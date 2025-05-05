@@ -267,19 +267,22 @@ def overwrite_validate_phone_number(data, throw=False):
 
 
 def get_billing_address(customer_name: str):
-    billing_address = frappe.db.sql(
-        """
-            SELECT `tabAddress`.name
-            FROM `tabDynamic Link`, `tabAddress`
-            WHERE `tabDynamic Link`.link_doctype = 'Customer'
-            AND `tabDynamic Link`.link_name = %(customer_name)s
-            AND `tabAddress`.address_type = 'Billing'
-            LIMIT 1
-        """,
-        {"customer_name": customer_name},
-        as_dict=True,
+    Address = DocType("Address")
+    DynamicLink = DocType("Dynamic Link")
+
+    query = (
+        frappe.qb.from_(Address)
+        .join(DynamicLink)
+        .on(DynamicLink.parent == Address.name)
+        .select(Address.name)
+        .where(DynamicLink.link_doctype == "Customer")
+        .where(DynamicLink.link_name == customer_name)
+        .where(Address.address_type == "Billing")
+        .limit(1)
     )
-    return billing_address[0].get("name") if billing_address else None
+
+    result = query.run(pluck="name")
+    return result[0] if result else frappe.db.get_value("Customer", customer_name, "customer_primary_address")
 
 
 def match_or_create_address(
@@ -292,18 +295,16 @@ def match_or_create_address(
     Address = DocType("Address")
 
     # Case insensitive match on core address fields
-    query = (
+    existing_address = (
         frappe.qb.from_(Address)
         .select(Address.name)
         .where(Lower(Address.address_line1) == address.street1.lower())
         .where(Lower(Address.city) == address.city.lower())
         .limit(1)
-    )
-
-    existing_address = query.run(as_dict=True)
+    ).run(pluck="name")
 
     if existing_address and existing_address[0]:
-        addr = frappe.get_doc("Address", existing_address[0].get("name"))
+        addr = frappe.get_doc("Address", existing_address[0])
         # Check if this customer is already linked
         has_customer_link = frappe.db.exists(
             "Dynamic Link",
