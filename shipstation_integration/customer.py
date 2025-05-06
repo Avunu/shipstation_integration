@@ -119,12 +119,11 @@ def create_customer(
     customer_email = getattr(order, "customer_email", None)
     existing_customer = None
     if customer_email:
-        customer_email = customer_email.strip().lower()
         Customer = DocType("Customer")
         customer_query = (
             frappe.qb.from_(Customer)
             .select(Customer.name)
-            .where(Lower(Customer.customer_name) == customer_email)
+            .where(Lower(Customer.customer_name) == customer_email.strip().lower())
             .limit(1)
         )
         existing_customer = customer_query.run(as_dict=True)
