@@ -116,9 +116,10 @@ def create_customer(
         ss_customer = None
 
     # Check if customer exists with same email
-    customer_email = order.customer_email.strip().lower()
+    customer_email = getattr(order, "customer_email", None)
     existing_customer = None
     if customer_email:
+        customer_email = customer_email.strip().lower()
         Customer = DocType("Customer")
         customer_query = (
             frappe.qb.from_(Customer)
@@ -282,7 +283,11 @@ def get_billing_address(customer_name: str):
     )
 
     result = query.run(pluck="name")
-    return result[0] if result else frappe.db.get_value("Customer", customer_name, "customer_primary_address")
+    return (
+        result[0]
+        if result
+        else frappe.db.get_value("Customer", customer_name, "customer_primary_address")
+    )
 
 
 def match_or_create_address(
