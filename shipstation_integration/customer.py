@@ -116,9 +116,10 @@ def create_customer(
         ss_customer = None
 
     # Check if customer exists with same email
-    customer_email = order.customer_email.strip().lower()
+    customer_email = getattr(order, "customer_email", None)
     existing_customer = None
     if customer_email:
+        customer_email = customer_email.strip().lower()
         Customer = DocType("Customer")
         customer_query = (
             frappe.qb.from_(Customer)
