@@ -20,7 +20,7 @@ function set_item_field_options(frm) {
 		// only fetch data fields from the doctype meta
 		const fieldlist = frappe.get_meta("Sales Order Item").fields;
 		const filtered_fieldlist = fieldlist.filter((field) => {
-			return ["Data", "Text", "Small Text", "Link", "Select"].includes(field.fieldtype);
+			return ["Check", "Data", "Text", "Small Text", "Link", "Select"].includes(field.fieldtype);
 		});
 
 		let options = filtered_fieldlist.map((field) => {
