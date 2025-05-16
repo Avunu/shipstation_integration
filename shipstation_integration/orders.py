@@ -96,6 +96,15 @@ def validate_order(
     if existing_order:
         new_status, new_docstatus = get_erpnext_status(order.order_status)
         if existing_order.status != new_status:
+            # if the new status is canceled, cancel it
+            if new_status == "Cancelled":
+                try:
+                    frappe.get_doc("Sales Order", existing_order.name).cancel()
+                except Exception as e:
+                    frappe.log_error(
+                        title="Error while cancelling Shipstation order",
+                        message=f"Error: {e}, Order ID: {existing_order.name}",
+                    )
             frappe.db.set_value(
                 "Sales Order",
                 existing_order.name,
