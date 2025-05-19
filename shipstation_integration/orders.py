@@ -273,23 +273,14 @@ def create_erpnext_order(
 	if float(order.order_total) < float(0):
 		so.is_return = 1
 	try:
-		if so.get("grand_total") and so.grand_total >= 0:
-			so.save()
-		else:
-			frappe.log_error(
-				title="Something fishy is going on with this Shipstation order",
-				message=f"""
-					Order: {order}
-					Sales Order: {so}
-				""",
-			)
+		so.save()
 	except Exception as e:
 		frappe.log_error(
 			title="Error while creating Shipstation order",
 			message=f"""
 				Error: {e}
 				Order: {order}
-				Sales Order: {so}
+				Sales Order: {so.as_dict()}
 			""",
 		)
 		return
