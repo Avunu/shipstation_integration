@@ -10,8 +10,8 @@ from frappe.utils.safe_exec import is_job_queued
 from httpx import HTTPError
 
 from shipstation_integration.customer import (
-    create_customer,
-    match_or_create_address,
+	create_customer,
+	match_or_create_address,
 )
 from shipstation_integration.items import create_item
 
@@ -63,9 +63,9 @@ def list_orders(
 
 		if not last_order_datetime:
 			# get data for the last day, Shipstation API behaves oddly when it's a shorter period
-			last_order_datetime = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(
-				hours=sss_doc.get("hours_to_fetch", 24)
-			)
+			last_order_datetime = datetime.datetime.now(
+				datetime.timezone.utc
+			) - datetime.timedelta(hours=sss_doc.get("hours_to_fetch", 24))
 
 		store: "ShipstationStore"
 		for store in sss_doc.shipstation_stores:
@@ -150,12 +150,18 @@ def create_erpnext_order(
 	if settings.shipstation_user:
 		frappe.set_user(settings.shipstation_user)
 	customer = (
-		frappe.get_cached_doc("Customer", store.customer) if store.customer else create_customer(order, settings)
+		frappe.get_cached_doc("Customer", store.customer)
+		if store.customer
+		else create_customer(order, settings)
 	)
 
 	# Get shipping and billing addresses
-	shipping_address = match_or_create_address(order.ship_to, customer.name, order.customer_email, "Shipping")
-	billing_address = match_or_create_address(order.bill_to, customer.name, order.customer_email, "Billing")
+	shipping_address = match_or_create_address(
+		order.ship_to, customer.name, order.customer_email, "Shipping"
+	)
+	billing_address = match_or_create_address(
+		order.bill_to, customer.name, order.customer_email, "Billing"
+	)
 
 	so: "SalesOrder" = frappe.new_doc("Sales Order")
 	so.update(
@@ -264,20 +270,28 @@ def create_erpnext_order(
 				"cost_center": store.cost_center,
 			},
 		)
-	# debug
-	# frappe.log_error("sales order", so.as_dict())
 	if float(order.order_total) < float(0):
 		so.is_return = 1
 	try:
-		so.save()
+		if so.get("grand_total") and so.grand_total >= 0:
+			so.save()
+		else:
+			frappe.log_error(
+				title="Something fishy is going on with this Shipstation order",
+				message=f"""
+					Order: {order}
+					Sales Order: {so}
+				""",
+			)
 	except Exception as e:
 		frappe.log_error(
 			title="Error while creating Shipstation order",
-   			message="""
+			message=f"""
 				Error: {e}
 				Order: {order}
 				Sales Order: {so}
-			""".format(e=e, order=order, so=so.as_dict()))
+			""",
+		)
 		return
 	if store.customer:
 		so.customer_name = order.customer_email
@@ -286,7 +300,9 @@ def create_erpnext_order(
 		getattr(order, "amount_paid", 0) > 0  # skip negative (returned) amount_paid values
 		and Decimal(so.grand_total).quantize(Decimal(".01")) != order.amount_paid
 	):
-		difference_amount = Decimal(Decimal(so.grand_total).quantize(Decimal(".01")) - order.amount_paid)
+		difference_amount = Decimal(
+			Decimal(so.grand_total).quantize(Decimal(".01")) - order.amount_paid
+		)
 		so.shipstation_discount = difference_amount
 		account = store.difference_account
 		# if the shipping amount is noted but not charged (FBA orders), this correctly offsets it
@@ -411,7 +427,9 @@ def update_shipstation_order_status(
 		error_message = f"Exception occurred: {str(e)}\n{frappe.get_traceback()}"
 		integration_request.status = "Failed"
 		integration_request.error = error_message
-		frappe.log_error(title="Error while updating ShipStation order status", message=error_message)
+		frappe.log_error(
+			title="Error while updating ShipStation order status", message=error_message
+		)
 
 	finally:
 		# Save the integration request log and commit changes

@@ -6,6 +6,7 @@ from shipstation.models import ShipStationItem, ShipStationOrderItem
 
 if TYPE_CHECKING:
     from erpnext.stock.doctype.item.item import Item
+    from erpnext.setup.doctype.uom.uom import UOM
 
     from shipstation_integration.shipstation_integration.doctype.shipstation_settings.shipstation_settings import (
         ShipstationSettings,
@@ -19,7 +20,7 @@ def create_item(
     product: ShipStationItem | ShipStationOrderItem,
     settings: "ShipstationSettings",
     store: Optional["ShipstationStore"] = None,
-) -> str:
+) -> "Item":
 
     if settings.shipstation_user:
         frappe.set_user(settings.shipstation_user)
@@ -64,9 +65,9 @@ def create_item(
                     weight_uom = "Ounce"
 
         # create a new temporary UOM for the item (to be merged later)
-        stock_uom = frappe.get_doc(
-            "UOM",
+        uom: "UOM" = frappe.get_doc(
             {
+                "doctype": "UOM",
                 "uom_name": f"{product.sku or item_name} (Change Me)",
                 "description": "Please identify the proper UOM for this item and merge this document with the correct UOM",
             },
@@ -84,8 +85,8 @@ def create_item(
                 "weight_per_unit": weight_per_unit,
                 "weight_uom": weight_uom,
                 "end_of_life": "",
-                "stock_uom": stock_uom.name,
-                "sales_uom": stock_uom.name,
+                "stock_uom": uom.name,
+                "sales_uom": uom.name,
             }
         )
 
