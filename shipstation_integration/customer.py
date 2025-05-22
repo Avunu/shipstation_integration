@@ -52,7 +52,7 @@ def update_customer_details(
 
     existing_so_doc.update(
         {
-            "customer_name": customer.name or customer.email,
+            "customer_name": customer.name or customer.company or customer.email,
             "has_pii": True,
             "integration_doctype": "Shipstation Settings",
             "integration_doc": store.get("parent"),
