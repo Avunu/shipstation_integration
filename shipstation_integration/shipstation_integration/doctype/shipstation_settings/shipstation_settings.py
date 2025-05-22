@@ -11,7 +11,6 @@ from httpx import HTTPError
 from shipstation import ShipStation
 
 from shipstation_integration.items import create_item
-from shipstation_integration.orders import list_orders
 from shipstation_integration.shipments import list_shipments
 from shipstation_integration.tags import list_tags
 from shipstation_integration.utils import get_marketplace
@@ -56,6 +55,7 @@ class ShipstationSettings(Document):
 
 	@frappe.whitelist()
 	def get_orders(self):
+		from shipstation_integration.orders import list_orders
 		list_orders(self)
 
 	@frappe.whitelist()
