@@ -118,6 +118,7 @@ def create_customer(
     # Check if customer exists with same email
     customer_email = getattr(order, "customer_email", None)
     existing_customer = None
+    # If customer_id is not provided, try to find by email
     if customer_email:
         customer_email = customer_email.strip().lower()
         Customer = DocType("Customer")
@@ -127,9 +128,9 @@ def create_customer(
             .where(Lower(Customer.customer_name) == customer_email)
             .limit(1)
         )
-        existing_customer = customer_query.run(as_dict=True)
+        email_match = customer_query.run(as_dict=True)
 
-        if not existing_customer:
+        if not email_match:
             ContactEmail = DocType("Contact Email")
             DynamicLink = DocType("Dynamic Link")
 
@@ -137,20 +138,39 @@ def create_customer(
                 frappe.qb.from_(ContactEmail)
                 .inner_join(DynamicLink)
                 .on(ContactEmail.parent == DynamicLink.parent)
-                .select(DynamicLink.link_name)
+                .select(DynamicLink.link_name.as_("name"))
                 .where(Lower(ContactEmail.email_id) == customer_email)
                 .where(DynamicLink.link_doctype == "Customer")
                 .limit(1)
             )
-            existing_customer = contact_query.run(as_dict=True)
+            email_match = contact_query.run(as_dict=True)
 
-        if existing_customer:
-            existing_customer = existing_customer[0].get(
-                "name" if "name" in existing_customer[0] else "link_name"
-            )
+        if email_match:
+            existing_customer = email_match[0].get("name")
+            
+    # try the address next
+    if not existing_customer and hasattr(order, "ship_to") and getattr(order.ship_to, "street1", None):
+        ship_to = getattr(order,"ship_to", {})
+        # Try matching by address fields
+        Address = DocType("Address")
+        DynamicLink = DocType("Dynamic Link")
+        address_query = (
+            frappe.qb.from_(Address)
+            .join(DynamicLink)
+            .on(Address.name == DynamicLink.parent)
+            .select(DynamicLink.link_name)
+            .where(DynamicLink.link_doctype == "Customer")
+            .where(Lower(Address.address_line1) == getattr(ship_to, "street1", "").strip().lower())
+            .where(Lower(Address.city) == getattr(ship_to, "city", "").strip().lower())
+            .where(Lower(Address.pincode) == getattr(ship_to, "postal_code", ""))
+            .limit(1)
+        )
+        address_match = address_query.run(as_dict=True)
+        if address_match:
+            existing_customer = address_match[0].get("link_name")
 
     if existing_customer:
-        cust = frappe.get_doc("Customer", existing_customer)
+        cust = frappe.get_doc("Customer", str(existing_customer))
         if customer_id and not cust.get("shipstation_customer_id"):
             cust.shipstation_customer_id = customer_id
             cust.save()
@@ -159,13 +179,17 @@ def create_customer(
     # Create new customer
     cust = frappe.new_doc("Customer")
     cust.name = (
-        order.customer_email
-        or order.customer_id
-        or order.ship_to.name
+        str(getattr(order, 'customer_email', '')).strip().lower()
+        or str(getattr(order, 'customer_id', '')).strip().lower()
+        or str(getattr(order, 'ship_to', {}).get('name', '')).strip().title()
         or frappe.generate_hash("", 10)
     )
+    frappe.log_error(
+        title="Creating Shipstation Customer",
+        message=f"Creating customer with name: {cust.name} and ID: {customer_id}",
+    )
     cust.shipstation_customer_id = customer_id
-    cust.customer_name = ss_customer.name if ss_customer else cust.name
+    cust.customer_name = getattr(ss_customer,'name', '').strip() or cust.name
     cust.customer_type = "Company" if ss_customer and ss_customer.company else "Individual"
     cust.customer_group = "ShipStation"
     cust.territory = "United States"
