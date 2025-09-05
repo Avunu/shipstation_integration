@@ -176,9 +176,9 @@ def create_customer(
 ) -> "Customer":
     """Create or update a customer from ShipStation data"""
     if not settings:
-        settings = ShipstationSettings("Shipstation Settings", {"enabled": 1})
+        settings = frappe.get_doc("Shipstation Settings", {"enabled": 1})
     elif isinstance(settings, dict):
-        settings = ShipstationSettings("Shipstation Settings", settings.get("name"))
+        settings = frappe.get_doc("Shipstation Settings", settings.get("name"))
 
     customer_id = order.customer_id
     existing_customer_name: str | None = None

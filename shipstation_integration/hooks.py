@@ -129,3 +129,5 @@ scheduler_events = {
 override_doctype_class = {
 	"Sales Order": "shipstation_integration.shipstation_integration.overrides.sales_order.ShipStationSalesOrder",
 }
+
+export_python_type_annotations = True

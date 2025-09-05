@@ -64,16 +64,25 @@ def create_item(
                     weight_per_unit = flt(weight_per_unit * 0.035274, 2)
                     weight_uom = "Ounce"
 
-        # create a new temporary UOM for the item (to be merged later)
-        uom: "UOM" = frappe.get_doc(
-            {
-                "doctype": "UOM",
-                "uom_name": f"{product.sku or item_name} (Change Me)",
-                "description": "Please identify the proper UOM for this item and merge this document with the correct UOM",
-            },
-        ).insert(ignore_permissions=True)
+        # assign the UOM
+        uom: "UOM"
+        uom_exists = frappe.db.exists("UOM", f"{product.sku or item_name} (Change Me)")
+        if uom_exists:
+            uom = frappe.get_doc("UOM", uom_exists)
+        else:
+            # create a new UOM with a temporary name
+            # to be merged later with the correct UOM
+            # after the item is created and the user can select the correct UOM
+            uom = frappe.get_doc(
+                {
+                    "doctype": "UOM",
+                    "uom_name": f"{product.sku or item_name} (Change Me)",
+                    "description": "Please identify the proper UOM for this item and merge this document with the correct UOM",
+                },
+            )
+            uom.insert(ignore_permissions=True)
 
-        item: "Item" = frappe.new_doc("Item")
+        item: "Item" = Item("Item")
         item.update(
             {
                 "item_code": product.sku or item_name,
