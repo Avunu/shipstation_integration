@@ -147,10 +147,14 @@ def create_customer(
 
         if email_match:
             existing_customer = email_match[0].get("name")
-            
+
     # try the address next
-    if not existing_customer and hasattr(order, "ship_to") and getattr(order.ship_to, "street1", None):
-        ship_to = getattr(order,"ship_to", {})
+    if (
+        not existing_customer
+        and hasattr(order, "ship_to")
+        and getattr(order.ship_to, "street1", None)
+    ):
+        ship_to = getattr(order, "ship_to", {})
         # Try matching by address fields
         Address = DocType("Address")
         DynamicLink = DocType("Dynamic Link")
@@ -179,17 +183,13 @@ def create_customer(
     # Create new customer
     cust = frappe.new_doc("Customer")
     cust.name = (
-        str(getattr(order, 'customer_email', '')).strip().lower()
-        or str(getattr(order, 'customer_id', '')).strip().lower()
-        or str(getattr(order, 'ship_to', {}).get('name', '')).strip().title()
+        str(getattr(order, "customer_email", "")).strip().lower()
+        or str(getattr(order, "customer_id", "")).strip().lower()
+        or str(getattr(order, "ship_to", {}).get("name", "")).strip().title()
         or frappe.generate_hash("", 10)
     )
-    frappe.log_error(
-        title="Creating Shipstation Customer",
-        message=f"Creating customer with name: {cust.name} and ID: {customer_id}",
-    )
     cust.shipstation_customer_id = customer_id
-    cust.customer_name = getattr(ss_customer,'name', '').strip() or cust.name
+    cust.customer_name = getattr(ss_customer, "name", "").strip() or cust.name
     cust.customer_type = "Company" if ss_customer and ss_customer.company else "Individual"
     cust.customer_group = "ShipStation"
     cust.territory = "United States"
