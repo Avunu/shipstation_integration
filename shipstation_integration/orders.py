@@ -1,10 +1,13 @@
 import datetime
-from typing import TYPE_CHECKING, cast
+from typing import cast
 
 import frappe
 from erpnext.stock.doctype.item.item import get_uom_conv_factor
 from frappe.utils import flt, getdate
 from httpx import HTTPError
+
+logger = frappe.logger("shipstation", allow_site=True, file_count=10)
+# logger.setLevel("DEBUG")
 
 from shipstation_integration.customer import (
     create_customer,
@@ -38,6 +41,8 @@ def list_orders(
     else:
         settings_list = [str(settings.name)]
 
+    logger.info(f"list_orders called with settings_list: {settings_list}")
+
     for sss_name in settings_list:
         sss_doc: ShipstationSettings = cast(ShipstationSettings, frappe.get_doc("Shipstation Settings", sss_name))
         if not sss_doc.enabled:
@@ -56,7 +61,10 @@ def list_orders(
         store: "ShipstationStore"
         for store in sss_doc.shipstation_stores:
             if not store.enable_orders:
+                logger.debug(f"Skipping store {store.store_name} ({store.store_id}): enable_orders is False")
                 continue
+
+            logger.info(f"Processing store: {store.store_name} ({store.store_id})")
 
             parameters = {
                 "store_id": store.store_id,
@@ -68,23 +76,35 @@ def list_orders(
             if update_parameter_hook:
                 parameters = frappe.get_attr(update_parameter_hook[0])(parameters)
 
+            logger.info(f"Fetching orders with parameters: {parameters}")
+
             try:
                 orders = client.list_orders(parameters=parameters)
+                logger.info(f"Fetched {len(orders.results) if hasattr(orders, 'results') else 'unknown'} orders")
             except HTTPError as e:
                 frappe.log_error(title="Error while fetching Shipstation orders", message=e)
+                logger.error(f"HTTPError fetching orders: {e}")
                 continue
 
             for order in orders:
                 if not isinstance(order, ShipStationOrder):
+                    logger.warning(f"Skipping invalid order object: {order}")
                     continue
-                if validate_order(sss_doc, order, store):
+                logger.info(f"Processing order {order.order_number} (ID: {order.order_id})")
+                if validate_order(sss_doc, order, store):  # type: ignore[arg-type]
                     should_create_order = True
                     process_order_hook = frappe.get_hooks("process_shipstation_order")
                     if process_order_hook:
                         should_create_order = frappe.get_attr(process_order_hook[0])(order, store)
+                        logger.info(f"process_order_hook returned: {should_create_order}")
 
                     if should_create_order:
-                        create_erpnext_order(order, store, sss_doc)
+                        logger.info(f"Creating ERPNext order for {order.order_number}")
+                        create_erpnext_order(order, store, sss_doc)  # type: ignore[arg-type]
+                    else:
+                        logger.info(f"Skipping order {order.order_number}: should_create_order is False")
+                else:
+                    logger.info(f"Order {order.order_number} failed validation")
 
 
 def validate_order(
@@ -93,6 +113,7 @@ def validate_order(
     store: "ShipstationStore",
 ):
     if not order:
+        logger.warning(f"validate_order: order is falsy")
         return False
 
     # if an order already exists, skip, unless the status needs to be updated
@@ -106,6 +127,7 @@ def validate_order(
         existing_order_name = str(existing_order.get("name", ""))
         existing_order_status = str(existing_order.get("status", ""))
         new_status, new_docstatus = get_erpnext_status(order.order_status)
+        logger.info(f"validate_order: Order {order.order_number} already exists as {existing_order_name} (status: {existing_order_status} -> {new_status})")
         if existing_order_status != new_status:
             # if the new status is canceled, cancel it
             if new_status == "Cancelled":
@@ -131,6 +153,7 @@ def validate_order(
         and order.advanced_options
         and order.advanced_options.warehouse_id not in settings.active_warehouse_ids
     ):
+        logger.info(f"validate_order: Order {order.order_number} rejected - warehouse_id {order.advanced_options.warehouse_id} not in {settings.active_warehouse_ids}")
         return False
 
     # if a date filter is set in Shipstation Settings, don't create orders before that date
@@ -138,8 +161,10 @@ def validate_order(
         order_date = getdate(order.create_date)
         since_date = getdate(settings.since_date)
         if order_date and since_date and order_date < since_date:
+            logger.info(f"validate_order: Order {order.order_number} rejected - order_date {order_date} < since_date {since_date}")
             return False
 
+    logger.info(f"validate_order: Order {order.order_number} passed validation")
     return True
 
 
