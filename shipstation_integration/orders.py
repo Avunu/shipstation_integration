@@ -1,5 +1,5 @@
 import datetime
-from typing import TYPE_CHECKING, Union
+from typing import TYPE_CHECKING, cast
 
 import frappe
 from erpnext.stock.doctype.item.item import get_uom_conv_factor
@@ -13,29 +13,33 @@ from shipstation_integration.customer import (
 )
 from shipstation_integration.items import create_item
 
-if TYPE_CHECKING:
-    from erpnext.selling.doctype.sales_order.sales_order import SalesOrder
-    from shipstation.models import ShipStationOrder, ShipStationOrderItem
+from erpnext.selling.doctype.sales_order.sales_order import SalesOrder
+from shipstation.models import ShipStationOrder, ShipStationOrderItem
 
-    from shipstation_integration.shipstation_integration.doctype.shipstation_settings.shipstation_settings import (
-        ShipstationSettings,
-    )
-    from shipstation_integration.shipstation_integration.doctype.shipstation_store.shipstation_store import (
-        ShipstationStore,
-    )
+from shipstation_integration.shipstation_integration.doctype.shipstation_settings.shipstation_settings import (
+    ShipstationSettings,
+)
+from shipstation_integration.shipstation_integration.doctype.shipstation_store.shipstation_store import (
+    ShipstationStore,
+)
 
 
 def list_orders(
-    settings: "ShipstationSettings" = None,
-    last_order_datetime: datetime.datetime = None,
+    settings: "ShipstationSettings | str | list[str] | None" = None,
+    last_order_datetime: datetime.datetime | None = None,
 ):
+    settings_list: list[str]
     if not settings:
-        settings = frappe.get_all("Shipstation Settings", filters={"enabled": True})
-    elif not isinstance(settings, list):
-        settings = [settings]
+        settings_list = [s.name for s in frappe.get_all("Shipstation Settings", filters={"enabled": True})]
+    elif isinstance(settings, str):
+        settings_list = [settings]
+    elif isinstance(settings, list):
+        settings_list = settings
+    else:
+        settings_list = [str(settings.name)]
 
-    for sss in settings:
-        sss_doc: "ShipstationSettings" = frappe.get_doc("Shipstation Settings", sss.name)
+    for sss_name in settings_list:
+        sss_doc: ShipstationSettings = cast(ShipstationSettings, frappe.get_doc("Shipstation Settings", sss_name))
         if not sss_doc.enabled:
             continue
 
@@ -44,8 +48,9 @@ def list_orders(
 
         if not last_order_datetime:
             # get data for the last day, Shipstation API behaves oddly when it's a shorter period
+            hours_to_fetch = getattr(sss_doc, "hours_to_fetch", None) or 500
             last_order_datetime = datetime.datetime.utcnow() - datetime.timedelta(
-                hours=sss_doc.get("hours_to_fetch", 500)
+                hours=int(hours_to_fetch)
             )
 
         store: "ShipstationStore"
@@ -69,8 +74,9 @@ def list_orders(
                 frappe.log_error(title="Error while fetching Shipstation orders", message=e)
                 continue
 
-            order: "ShipStationOrder"
             for order in orders:
+                if not isinstance(order, ShipStationOrder):
+                    continue
                 if validate_order(sss_doc, order, store):
                     should_create_order = True
                     process_order_hook = frappe.get_hooks("process_shipstation_order")
@@ -90,24 +96,29 @@ def validate_order(
         return False
 
     # if an order already exists, skip, unless the status needs to be updated
-    existing_order = frappe.db.get_value(
-        "Sales Order", {"shipstation_order_id": order.order_id}, ["name", "status"], as_dict=True
+    existing_order: dict | None = frappe.db.get_value(
+        "Sales Order",
+        {"shipstation_order_id": order.order_id},
+        fieldname=["name", "status"],  # type: ignore[arg-type]
+        as_dict=True,
     )
     if existing_order:
+        existing_order_name = str(existing_order.get("name", ""))
+        existing_order_status = str(existing_order.get("status", ""))
         new_status, new_docstatus = get_erpnext_status(order.order_status)
-        if existing_order.status != new_status:
+        if existing_order_status != new_status:
             # if the new status is canceled, cancel it
             if new_status == "Cancelled":
                 try:
-                    frappe.get_doc("Sales Order", existing_order.name).cancel()
+                    frappe.get_doc("Sales Order", existing_order_name).cancel()
                 except Exception as e:
                     frappe.log_error(
                         title="Error while cancelling Shipstation order",
-                        message=f"Error: {e}, Order ID: {existing_order.name}",
+                        message=f"Error: {e}, Order ID: {existing_order_name}",
                     )
             frappe.db.set_value(
                 "Sales Order",
-                existing_order.name,
+                existing_order_name,
                 {"status": new_status, "docstatus": new_docstatus},
                 update_modified=False,
             )
@@ -117,13 +128,17 @@ def validate_order(
     # if no warehouses are set, fetch everything
     if (
         settings.active_warehouse_ids
+        and order.advanced_options
         and order.advanced_options.warehouse_id not in settings.active_warehouse_ids
     ):
         return False
 
     # if a date filter is set in Shipstation Settings, don't create orders before that date
-    if settings.since_date and getdate(order.create_date) < settings.since_date:
-        return False
+    if settings.since_date:
+        order_date = getdate(order.create_date)
+        since_date = getdate(settings.since_date)
+        if order_date and since_date and order_date < since_date:
+            return False
 
     return True
 
@@ -132,16 +147,22 @@ def create_erpnext_order(
     order: "ShipStationOrder", store: "ShipstationStore", settings: "ShipstationSettings"
 ) -> str | None:
     customer = create_customer(order, settings)
+    customer_name = str(customer.name) if customer.name else ""
+    customer_email = order.customer_email or ""
 
     # Get shipping and billing addresses
-    shipping_address = match_or_create_address(
-        order.ship_to, customer.name, order.customer_email, "Shipping"
+    shipping_address = (
+        match_or_create_address(order.ship_to, customer_name, customer_email, "Shipping")
+        if order.ship_to
+        else None
     )
-    billing_address = match_or_create_address(
-        order.bill_to, customer.name, order.customer_email, "Billing"
+    billing_address = (
+        match_or_create_address(order.bill_to, customer_name, customer_email, "Billing")
+        if order.bill_to
+        else None
     )
     status, docstatus = get_erpnext_status(order.order_status)
-    so: "SalesOrder" = frappe.new_doc("Sales Order")
+    so = cast(SalesOrder, frappe.new_doc("Sales Order"))
     so.update(
         {
             "status": status,
@@ -185,18 +206,19 @@ def create_erpnext_order(
 
     discount_amount = 0.0
     for item in order_items:
-        if item.quantity < 1:
+        item_quantity = int(item.quantity) if item.quantity else 0
+        if item_quantity < 1:
             continue
 
-        rate = flt(item.unit_price) if hasattr(item, "unit_price") else 0.0
+        rate = float(item.unit_price) if hasattr(item, "unit_price") and item.unit_price is not None else 0.0
 
         # the only way to identify marketplace discounts via the Shipstation API is
         # to find it using the `line_item_key` string
         if item.line_item_key == "discount":
-            discount_amount += abs(rate * item.quantity)
+            discount_amount += abs(rate * item_quantity)
             continue
 
-        settings = frappe.get_doc("Shipstation Settings", store.parent)
+        settings = cast(ShipstationSettings, frappe.get_doc("Shipstation Settings", store.parent))
         stock_item = create_item(item, settings=settings, store=store)
         uom = stock_item.sales_uom or stock_item.stock_uom
         conversion_factor = (
@@ -221,7 +243,7 @@ def create_erpnext_order(
         )
 
         # check to see if the option exists in the Options Import table, otherwise add it
-        for option in item.options:
+        for option in item.options or []:
             option_import = next(
                 (
                     ss_option
