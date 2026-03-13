@@ -1,0 +1,39 @@
+{
+    "custom_fields": [],
+    "property_setters": [
+        {
+            "doc_type": "Shipment Parcel",
+            "doctype_or_field": "DocField",
+            "field_name": "length",
+            "property": "label",
+            "property_type": "Data",
+            "value": "Length (Inch)"
+        },
+        {
+            "doc_type": "Shipment Parcel",
+            "doctype_or_field": "DocField",
+            "field_name": "width",
+            "property": "label",
+            "property_type": "Data",
+            "value": "Width (Inch)"
+        },
+        {
+            "doc_type": "Shipment Parcel",
+            "doctype_or_field": "DocField",
+            "field_name": "height",
+            "property": "label",
+            "property_type": "Data",
+            "value": "Height (Inch)"
+        },
+        {
+            "doc_type": "Shipment Parcel",
+            "doctype_or_field": "DocField",
+            "field_name": "weight",
+            "property": "label",
+            "property_type": "Data",
+            "value": "Weight (Pounds)"
+        }
+    ],
+    "sync_on_migrate": 1,
+    "doctype": "Shipment Parcel"
+}

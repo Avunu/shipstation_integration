@@ -1,0 +1,16 @@
+[
+ {
+  "accounts": [],
+  "credit_limits": [],
+  "customer_group_name": "ShipStation",
+  "default_price_list": null,
+  "docstatus": 0,
+  "doctype": "Customer Group",
+  "is_group": 0,
+  "modified": "2022-07-05 15:09:17.071664",
+  "name": "ShipStation",
+  "old_parent": "All Customer Groups",
+  "parent_customer_group": "All Customer Groups",
+  "payment_terms": null
+ }
+]

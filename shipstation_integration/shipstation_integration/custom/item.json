@@ -1,0 +1,61 @@
+{
+    "custom_fields": [
+        {
+            "dt": "Item",
+            "fieldname": "sb_integration",
+            "fieldtype": "Section Break",
+            "insert_after": "description",
+            "label": "Integration Details",
+            "collapsible": 1,
+            "is_system_generated": 1,
+            "module": "Shipstation Integration"
+        },
+        {
+            "dt": "Item",
+            "fieldname": "integration_doctype",
+            "fieldtype": "Link",
+            "options": "DocType",
+            "insert_after": "sb_integration",
+            "label": "Integration DocType",
+            "hidden": 1,
+            "print_hide": 1,
+            "is_system_generated": 1,
+            "module": "Shipstation Integration"
+        },
+        {
+            "dt": "Item",
+            "fieldname": "integration_doc",
+            "fieldtype": "Dynamic Link",
+            "options": "integration_doctype",
+            "insert_after": "integration_doctype",
+            "label": "Integration Doc",
+            "read_only": 1,
+            "print_hide": 1,
+            "is_system_generated": 1,
+            "module": "Shipstation Integration"
+        },
+        {
+            "dt": "Item",
+            "fieldname": "cb_integration",
+            "fieldtype": "Column Break",
+            "insert_after": "integration_doc",
+            "is_system_generated": 1,
+            "module": "Shipstation Integration"
+        },
+        {
+            "dt": "Item",
+            "fieldname": "store",
+            "fieldtype": "Data",
+            "insert_after": "cb_integration",
+            "label": "Store",
+            "read_only": 1,
+            "print_hide": 1,
+            "translatable": 0,
+            "is_system_generated": 1,
+            "module": "Shipstation Integration"
+        }
+    ],
+    "property_setters": [],
+    "sync_on_migrate": 1,
+    "doctype": "Item"
+}

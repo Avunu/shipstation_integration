@@ -1,0 +1,18 @@
+{
+    "custom_fields": [
+        {
+            "dt": "Warehouse",
+            "fieldname": "shipstation_warehouse_id",
+            "fieldtype": "Data",
+            "insert_after": "parent_warehouse",
+            "label": "Shipstation Warehouse ID",
+            "read_only": 1,
+            "translatable": 0,
+            "is_system_generated": 1,
+            "module": "Shipstation Integration"
+        }
+    ],
+    "property_setters": [],
+    "sync_on_migrate": 1,
+    "doctype": "Warehouse"
+}

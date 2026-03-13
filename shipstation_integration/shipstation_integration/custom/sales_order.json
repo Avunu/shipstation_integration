@@ -1,0 +1,122 @@
+{
+    "custom_fields": [
+        {
+            "dt": "Sales Order",
+            "fieldname": "sb_shipstation",
+            "fieldtype": "Section Break",
+            "insert_after": "tax_id",
+            "label": "Shipstation",
+            "collapsible": 1,
+            "is_system_generated": 1,
+            "module": "Shipstation Integration"
+        },
+        {
+            "dt": "Sales Order",
+            "fieldname": "shipstation_store_name",
+            "fieldtype": "Data",
+            "insert_after": "sb_shipstation",
+            "label": "Shipstation Store",
+            "read_only": 1,
+            "translatable": 0,
+            "is_system_generated": 1,
+            "module": "Shipstation Integration"
+        },
+        {
+            "dt": "Sales Order",
+            "fieldname": "shipstation_order_id",
+            "fieldtype": "Data",
+            "insert_after": "shipstation_store_name",
+            "label": "Shipstation Order ID",
+            "read_only": 1,
+            "in_standard_filter": 1,
+            "translatable": 0,
+            "is_system_generated": 1,
+            "module": "Shipstation Integration"
+        },
+        {
+            "dt": "Sales Order",
+            "fieldname": "cb_shipstation",
+            "fieldtype": "Column Break",
+            "insert_after": "shipstation_order_id",
+            "is_system_generated": 1,
+            "module": "Shipstation Integration"
+        },
+        {
+            "dt": "Sales Order",
+            "fieldname": "marketplace",
+            "fieldtype": "Data",
+            "insert_after": "cb_shipstation",
+            "label": "Marketplace",
+            "read_only": 1,
+            "translatable": 0,
+            "is_system_generated": 1,
+            "module": "Shipstation Integration"
+        },
+        {
+            "dt": "Sales Order",
+            "fieldname": "marketplace_order_id",
+            "fieldtype": "Data",
+            "insert_after": "marketplace",
+            "label": "Marketplace Order ID",
+            "read_only": 1,
+            "translatable": 0,
+            "is_system_generated": 1,
+            "module": "Shipstation Integration"
+        },
+        {
+            "dt": "Sales Order",
+            "fieldname": "has_pii",
+            "fieldtype": "Check",
+            "insert_after": "marketplace_order_id",
+            "label": "Has PII",
+            "hidden": 1,
+            "is_system_generated": 1,
+            "module": "Shipstation Integration"
+        },
+        {
+            "dt": "Sales Order",
+            "fieldname": "sb_notes",
+            "fieldtype": "Section Break",
+            "insert_after": "has_pii",
+            "label": "Notes",
+            "collapsible": 1,
+            "collapsible_depends_on": "eval:doc.shipstation_customer_notes || doc.shipstation_internal_notes",
+            "depends_on": "eval:doc.shipstation_customer_notes || doc.shipstation_internal_notes",
+            "is_system_generated": 1,
+            "module": "Shipstation Integration"
+        },
+        {
+            "dt": "Sales Order",
+            "fieldname": "shipstation_customer_notes",
+            "fieldtype": "Long Text",
+            "insert_after": "sb_notes",
+            "label": "Shipstation Customer Notes",
+            "read_only": 1,
+            "translatable": 0,
+            "is_system_generated": 1,
+            "module": "Shipstation Integration"
+        },
+        {
+            "dt": "Sales Order",
+            "fieldname": "cb_notes",
+            "fieldtype": "Column Break",
+            "insert_after": "shipstation_customer_notes",
+            "is_system_generated": 1,
+            "module": "Shipstation Integration"
+        },
+        {
+            "dt": "Sales Order",
+            "fieldname": "shipstation_internal_notes",
+            "fieldtype": "Long Text",
+            "insert_after": "cb_notes",
+            "label": "Shipstation Internal Notes",
+            "read_only": 1,
+            "translatable": 0,
+            "is_system_generated": 1,
+            "module": "Shipstation Integration"
+        }
+    ],
+    "property_setters": [],
+    "sync_on_migrate": 1,
+    "doctype": "Sales Order"
+}

@@ -1,0 +1,15 @@
+[
+ {
+  "buying": 0,
+  "countries": [],
+  "currency": "USD",
+  "docstatus": 0,
+  "doctype": "Price List",
+  "enabled": 1,
+  "modified": "2022-07-05 15:09:17.168275",
+  "name": "ShipStation",
+  "price_list_name": "ShipStation",
+  "price_not_uom_dependent": 0,
+  "selling": 1
+ }
+]

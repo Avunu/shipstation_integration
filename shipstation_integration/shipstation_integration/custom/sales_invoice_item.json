@@ -1,0 +1,39 @@
+{
+    "custom_fields": [
+        {
+            "dt": "Sales Invoice Item",
+            "fieldname": "sb_shipstation",
+            "fieldtype": "Section Break",
+            "insert_after": "weight_uom",
+            "label": "Shipstation",
+            "collapsible": 1,
+            "is_system_generated": 1,
+            "module": "Shipstation Integration"
+        },
+        {
+            "dt": "Sales Invoice Item",
+            "fieldname": "shipstation_order_item_id",
+            "fieldtype": "Data",
+            "insert_after": "sb_shipstation",
+            "label": "Shipstation Order Item ID",
+            "read_only": 1,
+            "translatable": 0,
+            "is_system_generated": 1,
+            "module": "Shipstation Integration"
+        },
+        {
+            "dt": "Sales Invoice Item",
+            "fieldname": "shipstation_item_notes",
+            "fieldtype": "Long Text",
+            "insert_after": "shipstation_order_item_id",
+            "label": "Shipstation Item Notes",
+            "read_only": 1,
+            "translatable": 0,
+            "is_system_generated": 1,
+            "module": "Shipstation Integration"
+        }
+    ],
+    "property_setters": [],
+    "sync_on_migrate": 1,
+    "doctype": "Sales Invoice Item"
+}
