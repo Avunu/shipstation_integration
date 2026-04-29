@@ -33,7 +33,9 @@ def list_orders(
 ):
     settings_list: list[str]
     if not settings:
-        settings_list = [s.name for s in frappe.get_all("Shipstation Settings", filters={"enabled": True})]
+        settings_list = [
+            s.name for s in frappe.get_all("Shipstation Settings", filters={"enabled": True})
+        ]
     elif isinstance(settings, str):
         settings_list = [settings]
     elif isinstance(settings, list):
@@ -44,7 +46,9 @@ def list_orders(
     logger.info(f"list_orders called with settings_list: {settings_list}")
 
     for sss_name in settings_list:
-        sss_doc: ShipstationSettings = cast(ShipstationSettings, frappe.get_doc("Shipstation Settings", sss_name))
+        sss_doc: ShipstationSettings = cast(
+            ShipstationSettings, frappe.get_doc("Shipstation Settings", sss_name)
+        )
         if not sss_doc.enabled:
             continue
 
@@ -61,7 +65,9 @@ def list_orders(
         store: "ShipstationStore"
         for store in sss_doc.shipstation_stores:
             if not store.enable_orders:
-                logger.debug(f"Skipping store {store.store_name} ({store.store_id}): enable_orders is False")
+                logger.debug(
+                    f"Skipping store {store.store_name} ({store.store_id}): enable_orders is False"
+                )
                 continue
 
             logger.info(f"Processing store: {store.store_name} ({store.store_id})")
@@ -80,7 +86,9 @@ def list_orders(
 
             try:
                 orders = client.list_orders(parameters=parameters)
-                logger.info(f"Fetched {len(orders.results) if hasattr(orders, 'results') else 'unknown'} orders")
+                logger.info(
+                    f"Fetched {len(orders.results) if hasattr(orders, 'results') else 'unknown'} orders"
+                )
             except HTTPError as e:
                 frappe.log_error(title="Error while fetching Shipstation orders", message=e)
                 logger.error(f"HTTPError fetching orders: {e}")
@@ -102,7 +110,9 @@ def list_orders(
                         logger.info(f"Creating ERPNext order for {order.order_number}")
                         create_erpnext_order(order, store, sss_doc)  # type: ignore[arg-type]
                     else:
-                        logger.info(f"Skipping order {order.order_number}: should_create_order is False")
+                        logger.info(
+                            f"Skipping order {order.order_number}: should_create_order is False"
+                        )
                 else:
                     logger.info(f"Order {order.order_number} failed validation")
 
@@ -127,7 +137,9 @@ def validate_order(
         existing_order_name = str(existing_order.get("name", ""))
         existing_order_status = str(existing_order.get("status", ""))
         new_status, new_docstatus = get_erpnext_status(order.order_status)
-        logger.info(f"validate_order: Order {order.order_number} already exists as {existing_order_name} (status: {existing_order_status} -> {new_status})")
+        logger.info(
+            f"validate_order: Order {order.order_number} already exists as {existing_order_name} (status: {existing_order_status} -> {new_status})"
+        )
         if existing_order_status != new_status:
             # if the new status is canceled, cancel it
             if new_status == "Cancelled":
@@ -153,7 +165,9 @@ def validate_order(
         and order.advanced_options
         and order.advanced_options.warehouse_id not in settings.active_warehouse_ids
     ):
-        logger.info(f"validate_order: Order {order.order_number} rejected - warehouse_id {order.advanced_options.warehouse_id} not in {settings.active_warehouse_ids}")
+        logger.info(
+            f"validate_order: Order {order.order_number} rejected - warehouse_id {order.advanced_options.warehouse_id} not in {settings.active_warehouse_ids}"
+        )
         return False
 
     # if a date filter is set in Shipstation Settings, don't create orders before that date
@@ -161,7 +175,9 @@ def validate_order(
         order_date = getdate(order.create_date)
         since_date = getdate(settings.since_date)
         if order_date and since_date and order_date < since_date:
-            logger.info(f"validate_order: Order {order.order_number} rejected - order_date {order_date} < since_date {since_date}")
+            logger.info(
+                f"validate_order: Order {order.order_number} rejected - order_date {order_date} < since_date {since_date}"
+            )
             return False
 
     logger.info(f"validate_order: Order {order.order_number} passed validation")
@@ -235,7 +251,11 @@ def create_erpnext_order(
         if item_quantity < 1:
             continue
 
-        rate = float(item.unit_price) if hasattr(item, "unit_price") and item.unit_price is not None else 0.0
+        rate = (
+            float(item.unit_price)
+            if hasattr(item, "unit_price") and item.unit_price is not None
+            else 0.0
+        )
 
         # the only way to identify marketplace discounts via the Shipstation API is
         # to find it using the `line_item_key` string
@@ -320,12 +340,30 @@ def create_erpnext_order(
         so.apply_discount_on = "Grand Total"
         so.discount_amount = discount_amount
 
-    so.save()
+    try:
+        so.save()
+    except Exception as e:
+        frappe.log_error(
+            title="Error saving Sales Order",
+            message={"error": e, "traceback": frappe.get_traceback()},
+            reference_doctype="Sales Order",
+            reference_name=so.name,
+        )
+        return
 
     before_submit_hook = frappe.get_hooks("update_shipstation_order_before_submit")
     if before_submit_hook:
         so = frappe.get_attr(before_submit_hook[0])(store, so)
-        so.save()
+        try:
+            so.save()
+        except Exception as e:
+            frappe.log_error(
+                title="Error saving Sales Order after before_submit_hook",
+                message={"error": e, "traceback": frappe.get_traceback()},
+                reference_doctype="Sales Order",
+                reference_name=so.name,
+            )
+            return
 
     match docstatus:
         case 1:
