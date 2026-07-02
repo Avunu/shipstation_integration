@@ -209,6 +209,7 @@ def create_erpnext_order(
             "status": status,
             "shipstation_store_name": store.store_name,
             "shipstation_order_id": order.order_id,
+            "shipstation_requested_shipping_service": getattr(order, "requested_shipping_service", None),
             "shipstation_customer_notes": getattr(order, "customer_notes", None),
             "shipstation_internal_notes": getattr(order, "internal_notes", None),
             "marketplace": store.marketplace_name,
