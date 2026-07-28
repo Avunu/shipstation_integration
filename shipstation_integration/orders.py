@@ -116,6 +116,19 @@ def validate_order(
 	return True
 
 
+def get_discount_amount(rate: float, quantity: Decimal | float | None) -> float:
+	"""Line total for a marketplace discount item, as a positive float.
+
+	Both `unit_price` and `quantity` arrive from the ShipStation client as
+	`Decimal` (see `shipstation.models.ShipStationOrderItem`: the response is
+	parsed with `parse_float=Decimal` and every numeric field is structured
+	through a Decimal hook, so even an integer quantity is a Decimal). Python
+	refuses to multiply a `float` by a `Decimal`, so both sides have to be
+	coerced — coercing only the rate raises TypeError on every discount line.
+	"""
+	return abs(flt(rate) * flt(quantity))
+
+
 def create_erpnext_order(
 	order: "ShipStationOrder", store: "ShipstationStore", settings: "ShipstationSettings"
 ) -> str | None:
@@ -177,7 +190,7 @@ def create_erpnext_order(
 		# the only way to identify marketplace discounts via the Shipstation API is
 		# to find it using the `line_item_key` string
 		if item.line_item_key == "discount":
-			discount_amount += abs(rate * item.quantity)
+			discount_amount += get_discount_amount(rate, item.quantity)
 			continue
 
 		settings = frappe.get_doc("Shipstation Settings", store.parent)
