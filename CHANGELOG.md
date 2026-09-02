@@ -5,6 +5,14 @@ For license information, please see license.txt-->
 
 <!-- version list -->
 
+## v2.0.1 (2026-09-02)
+
+### Bug Fixes
+
+- Line total for a marketplace discount item, as a positive float. to fix shipstation seetings error
+  ([`ab0d7f0`](https://github.com/Avunu/shipstation_integration/commit/ab0d7f0c763c70580fc300f553fc3fcf437180b6))
+
+
 ## v2.0.0 (2026-09-02)
 
 ### Bug Fixes
