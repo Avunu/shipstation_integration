@@ -13,6 +13,7 @@ from httpx import HTTPError
 
 from shipstation_integration.customer import create_customer, get_billing_address
 from shipstation_integration.items import create_item
+from shipstation_integration.utils import log_shipstation_error
 
 if TYPE_CHECKING:
 	from erpnext.selling.doctype.sales_order.sales_order import SalesOrder
@@ -132,8 +133,39 @@ def get_discount_amount(rate: float, quantity: Decimal | float | None) -> float:
 def create_erpnext_order(
 	order: "ShipStationOrder", store: "ShipstationStore", settings: "ShipstationSettings"
 ) -> str | None:
+	"""
+	Create one ERPNext Sales Order from a Shipstation order.
+
+	A failure here is isolated to this one order: it is rolled back, logged,
+	and None is returned, so list_orders() carries on with the rest of the
+	batch. Without that, a single unprocessable order aborts list_orders()
+	entirely and every *remaining* order in the window silently goes
+	uncreated, on every run, for as long as the bad record exists. Mirrors
+	create_erpnext_shipment() in shipments.py, which already works this way.
+	"""
 	if settings.shipstation_user:
 		frappe.set_user(settings.shipstation_user)
+
+	frappe.db.savepoint("create_erpnext_order")
+	try:
+		return _create_erpnext_order(order, store, settings)
+	except Exception as e:
+		try:
+			frappe.db.rollback(save_point="create_erpnext_order")
+		except Exception:
+			# _create_erpnext_order() commits once the Sales Order is
+			# submitted, and a commit releases every open savepoint - so a
+			# failure *after* that point (an after-submit hook, the tag loop)
+			# leaves nothing to roll back to. Discard whatever is uncommitted
+			# instead; the submitted order itself is already durable.
+			frappe.db.rollback()
+		log_shipstation_error(f"order {order.order_id}", e)
+		return None
+
+
+def _create_erpnext_order(
+	order: "ShipStationOrder", store: "ShipstationStore", settings: "ShipstationSettings"
+) -> str | None:
 	customer = (
 		frappe.get_cached_doc("Customer", store.customer) if store.customer else create_customer(order)
 	)
