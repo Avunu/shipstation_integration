@@ -88,6 +88,7 @@ def test_create_erpnext_order_survives_a_released_savepoint(mock_order, mock_sto
 	to, and the rollback itself raises. That must not escape and kill the
 	batch — the whole reason this guard exists.
 	"""
+
 	def rollback(save_point=None):
 		# Only the savepoint form fails, which is what a released savepoint
 		# actually does; the plain rollback still works.
